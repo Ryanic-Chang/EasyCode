@@ -1,10 +1,41 @@
 export type JsonObject = Readonly<Record<string, unknown>>;
 
-export interface ProviderMessage {
-  readonly role: "system" | "user" | "assistant" | "tool";
-  readonly content: string;
-  readonly toolCallId?: string;
+export interface ProviderToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: JsonObject;
 }
+
+export interface ProviderSystemMessage {
+  readonly role: "system";
+  readonly content: string;
+}
+
+export interface ProviderUserMessage {
+  readonly role: "user";
+  readonly content: string;
+}
+
+export interface ProviderAssistantMessage {
+  readonly role: "assistant";
+  readonly content: string;
+  readonly toolCalls: readonly ProviderToolCall[];
+}
+
+export interface ProviderToolMessage {
+  readonly role: "tool";
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly content: string;
+  readonly isError: boolean;
+  readonly metadata?: JsonObject;
+}
+
+export type ProviderMessage =
+  | ProviderSystemMessage
+  | ProviderUserMessage
+  | ProviderAssistantMessage
+  | ProviderToolMessage;
 
 export interface ProviderToolDefinition {
   readonly name: string;
@@ -38,7 +69,13 @@ export type ProviderEvent =
       readonly name?: string;
       readonly argumentsDelta?: string;
     }
-  | { readonly type: "tool_call"; readonly id: string; readonly name: string; readonly arguments: unknown }
+  | {
+      readonly type: "tool_call";
+      readonly index: number;
+      readonly id: string;
+      readonly name: string;
+      readonly arguments: unknown;
+    }
   | { readonly type: "finish"; readonly reason: "stop" | "tool_calls" | "length" }
   | { readonly type: "error"; readonly error: ProviderError };
 

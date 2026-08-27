@@ -7,6 +7,7 @@ export interface ToolContext {
 
 export interface ToolExecutionResult {
   readonly output: string;
+  readonly isError: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 

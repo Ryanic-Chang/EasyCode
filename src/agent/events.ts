@@ -1,6 +1,12 @@
 import type { ToolCall, ToolResult } from "./messages.js";
 
-export type AgentTerminationReason = "complete" | "aborted" | "provider_error" | "protocol_error" | "max_steps";
+export type AgentTerminationReason =
+  | "complete"
+  | "aborted"
+  | "provider_error"
+  | "protocol_error"
+  | "internal_error"
+  | "max_steps";
 
 export interface AgentError {
   readonly code: string;

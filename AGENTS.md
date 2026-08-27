@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M0 只建立工程基线和类型契约，不实现真实 Agent Loop、HTTP Provider、本地工具、命令执行或 Ink TUI。
+- M1 只实现可由 fake 确定性验证的 Agent Loop；不得提前实现 HTTP Provider、本地文件/命令工具、Ink TUI 或 session 持久化。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档

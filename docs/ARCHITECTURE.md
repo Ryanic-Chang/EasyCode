@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M0 只建立这些约束与类型级骨架；文中描述的 Agent Loop、Provider、Tool 和 TUI 行为将在后续里程碑逐步实现。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M1 已实现可由 fake 驱动的 Agent Loop、ToolRegistry 和安全门；HTTP Provider、真实代码工具与 TUI 仍由后续里程碑实现。
 
 ## 2. 架构目标
 
@@ -45,13 +45,13 @@ src/
   agent/
     messages.ts        # Message、ToolCall、ToolResult 等核心会话类型
     events.ts          # UI 可消费的 AgentEvent 与终止原因
-    loop.ts            # M1：Agent Loop 状态推进
+    loop.ts            # Agent Loop、上下文推进与终止判断
   llm/
     provider.ts        # Provider、ProviderRequest、ProviderEvent 契约
     openai-compatible/ # M2：OpenAI-compatible 协议适配
   tools/
     tool.ts            # Tool、ToolContext、执行结果契约
-    registry.ts        # M1/M3：显式工具注册与查找
+    registry.ts        # 显式工具注册、描述与输入准备
   config/
     config.ts          # 配置对象与允许的环境变量名称
   ui/
@@ -64,7 +64,7 @@ evals/
   scenarios/           # 可复现的端到端行为场景
 ```
 
-上表包含未来文件位置，不代表 M0 已实现对应功能。只有当前确实需要的文件会被创建。
+上表包含未来文件位置；`openai-compatible/` 与 `app.tsx` 尚未创建。只有当前里程碑确实需要的文件会进入仓库。
 
 ## 5. 依赖方向
 
@@ -99,10 +99,12 @@ main -> config
 规则：
 
 - UI 文本、模型原始流和工具日志不能直接充当规范历史。
-- 流式 ToolCall 在完整结束前只存在于 Provider 适配层的临时缓冲区。
+- 流式 ToolCall 在完整结束前只存在于 Agent 当前模型轮次的临时缓冲区，不进入规范历史。
 - 只有字段完整、参数可解析且满足 schema 的 ToolCall 才能进入 Agent 历史。
 - ToolResult 必须关联 `toolCallId` 与 `toolName`，并显式区分成功和可恢复失败。
 - 第一版上下文保存在内存中；压缩、持久化和跨会话恢复后置。
+
+`ProviderMessage` 使用判别联合无损表达历史：assistant 消息携带结构化 `toolCalls`；tool 消息携带 `toolCallId`、`toolName`、内容、`isError` 和可选 metadata。具体 Provider 适配器负责把该规范表示转换为厂商协议。
 
 ### 6.2 Provider
 
@@ -125,6 +127,14 @@ Provider 的职责：
 
 Provider 不负责：执行工具、重放整个会话、修改 workspace、终端渲染或自行无限重试。第一种真实实现计划采用 OpenAI-compatible HTTP API，但核心不依赖 OpenAI SDK。
 
+ToolCall 事件遵守以下协议：
+
+- `index` 是从 0 开始的连续非负整数，决定一轮内的执行顺序；
+- 同一 `index` 只能使用完整 `tool_call`，或使用一组 `tool_call_delta`，不得混用；
+- 增量事件中的 `id` 与 `name` 是稳定完整字段，重复出现时值必须一致；只有 `argumentsDelta` 进行字符串拼接；
+- Agent 必须收到唯一明确的 `finish` 后才能提交缓冲区；流提前结束、`length`、尾随事件或 JSON 不完整均视为协议错误；
+- 完整事件与增量事件最终收敛为同一种 `ToolCall`，因此不会重复执行。
+
 ### 6.3 Tool
 
 `Tool<Input>` 将工具元数据、输入解析和执行放在同一边界内：
@@ -139,7 +149,9 @@ interface Tool<Input> {
 }
 ```
 
-`parse` 是强制安全门。Agent 只能把 `parse` 成功得到的 `Input` 交给 `execute`。工具不存在、参数不完整、JSON 解析失败或 schema 不匹配时，执行函数不得被调用。
+`parse` 是强制安全门。ToolRegistry 用泛型包装保留解析结果与执行输入的类型关系。Agent 会先组装并解析当前响应中的全部 ToolCall；只有整轮全部通过，才追加 assistant 历史并开始按 index 串行执行。工具不存在、参数不完整、JSON 解析失败或 schema 不匹配时，本轮所有执行函数都不会被调用。
+
+`ToolExecutionResult.isError` 明确区分成功和可恢复领域失败。可恢复失败会转换为 `ToolResult` 回传模型；工具抛出的未知异常属于内部错误，不得伪装成失败或成功 ToolResult。
 
 工具实现还必须遵守：
 
@@ -165,6 +177,8 @@ Agent 对 UI 发布稳定的产品级事件：
 
 UI 只依据事件更新视图，不读取 Agent 内部缓冲区。未来即使将 Ink 替换为其他前端，核心循环也不需要修改。
 
+`AgentLoop.run()` 是异步生成器：事件用于实时展示，生成器最终返回 `AgentRunResult`，其中包含终止原因、最终 step 和规范消息快照，供 composition root 管理内存会话与测试断言。
+
 ## 7. Agent Loop 状态机
 
 ```mermaid
@@ -174,7 +188,7 @@ stateDiagram-v2
     ModelTurn --> AssembleResponse: ProviderEvent stream
     AssembleResponse --> Complete: finish(stop) 且无 ToolCall
     AssembleResponse --> ValidateToolCall: finish(tool_calls)
-    ValidateToolCall --> ExecuteTool: ToolCall 完整且参数有效
+    ValidateToolCall --> ExecuteTool: 整轮 ToolCall 全部有效
     ValidateToolCall --> ProtocolError: 缺失、截断或无法解析
     ExecuteTool --> AppendToolResult: 成功或可恢复工具失败
     AppendToolResult --> ModelTurn: 未达到 maxSteps
@@ -189,7 +203,7 @@ stateDiagram-v2
     MaxSteps --> [*]
 ```
 
-每次进入 `ModelTurn` 计为一个 step。一次模型轮次可以产生零个或多个完整 ToolCall；第一版按响应顺序串行执行，以获得稳定日志、清晰错误归属和可重复测试。执行完成后将全部 ToolResult 追加到上下文，再进入下一轮。
+每次进入 `ModelTurn` 计为一个 step。进入下一轮前先检查 `maxSteps`，因此不会额外请求一次 Provider。一次模型轮次可以产生零个或多个完整 ToolCall；第一版按 `index` 顺序串行执行，以获得稳定日志、清晰错误归属和可重复测试。执行完成后将全部 ToolResult 追加到上下文，再进入下一轮。
 
 必须先看到 Provider 的明确结束事件，才能把临时 ToolCall 缓冲区提交为待验证调用。任何半截参数或缺失 ID/name 的调用都进入 `ProtocolError`，不会触发 `tool_start`，更不会调用 `execute`。
 
@@ -204,20 +218,20 @@ stateDiagram-v2
 | Provider 错误 | 鉴权、限流、网络失败 | 否 | 发布错误事件并以 `provider_error` 终止 |
 | 用户取消 | Ctrl+C 或调用方 abort | 否 | 取消当前 Provider/工具并以 `aborted` 终止 |
 | 步数上限 | 下一轮将超过 `maxSteps` | 否 | 不再请求模型或执行工具，以 `max_steps` 终止 |
-| 内部错误 | 不变量被破坏、未知异常 | 否 | 脱敏后报告，安全终止 |
+| 内部错误 | 工具抛出未知异常、不变量被破坏 | 否 | 脱敏后报告，以 `internal_error` 安全终止 |
 
 M1 不做自动重试。重试会改变请求次数、费用和时序，应在有明确退避策略、幂等性判断和测试后单独引入。
 
 ## 9. Session 与状态
 
-第一版 Session 是进程内对象，拥有：
+M1 的 Session 状态由单次 `AgentLoop.run()` 在进程内维护，拥有：
 
 - 规范 `Message[]` 历史；
 - 当前 step 与 `maxSteps`；
 - 本次运行的 `AbortController`；
 - 只供诊断使用的事件序列或摘要。
 
-Provider、Tool 和 UI 不拥有 Session。M0 不创建会话文件；持久化、恢复、上下文压缩和多会话列表均推迟到证明必要之后。
+Provider、Tool 和 UI 不拥有 Session。M1 不创建会话文件；持久化、恢复、上下文压缩和多会话列表均推迟到证明必要之后。
 
 ## 10. 测试与评测策略
 
@@ -227,4 +241,4 @@ Provider、Tool 和 UI 不拥有 Session。M0 不创建会话文件；持久化�
 2. **集成测试**：在临时 workspace 中组合 Agent、工具注册表和具体工具，验证路径边界、取消、超时和输出截断。
 3. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。Fake Provider 必须能按调用轮次输出固定脚本并记录请求，使测试可以断言上下文顺序，而不是只断言最终文本。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。Fake Provider 能按调用轮次输出固定脚本、执行可控 Promise 暂停点并记录请求与 signal；Fake Tool 记录 parse 和 execute。测试由此断言上下文、事件与副作用顺序，而不是只断言最终文本。

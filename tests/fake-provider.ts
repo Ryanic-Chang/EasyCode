@@ -1,11 +1,15 @@
 import type { Provider, ProviderEvent, ProviderRequest, ProviderStreamOptions } from "../src/llm/provider.js";
 
+export type FakeProviderAction = (options: ProviderStreamOptions) => void | Promise<void>;
+export type FakeProviderStep = ProviderEvent | FakeProviderAction;
+
 export class FakeProvider implements Provider {
   readonly name = "fake";
   readonly requests: ProviderRequest[] = [];
-  readonly #scripts: ProviderEvent[][];
+  readonly signals: (AbortSignal | undefined)[] = [];
+  readonly #scripts: FakeProviderStep[][];
 
-  constructor(scripts: readonly (readonly ProviderEvent[])[]) {
+  constructor(scripts: readonly (readonly FakeProviderStep[])[]) {
     this.#scripts = scripts.map((script) => [...script]);
   }
 
@@ -18,10 +22,15 @@ export class FakeProvider implements Provider {
     }
 
     this.requests.push(request);
+    this.signals.push(options.signal);
 
-    for (const event of script) {
+    for (const step of script) {
       options.signal?.throwIfAborted();
-      yield event;
+      if (typeof step === "function") {
+        await step(options);
+      } else {
+        yield step;
+      }
     }
   }
 }
