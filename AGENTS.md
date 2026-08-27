@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M1 只实现可由 fake 确定性验证的 Agent Loop；不得提前实现 HTTP Provider、本地文件/命令工具、Ink TUI 或 session 持久化。
+- M2 已实现可由本地 fixture 验证的 OpenAI-compatible Provider；当前不得提前实现本地文件/命令工具、Ink TUI、session 持久化、自动重试或多 Provider 路由。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档
@@ -55,6 +55,7 @@
 
 - 测试优先使用确定性的 fake、fixture 和临时目录，不依赖真实 API、网络或用户主目录。
 - 每个 Agent Loop 分支都应能由 scripted fake Provider 重现。
+- Provider 协议测试必须注入 fake `fetch` 并使用本地 fixture；真实 API smoke 必须显式启用，默认测试和 CI 不得读取 secrets 或访问网络。
 - 修改后至少运行与风险相称的检查；提交前运行 `npm run check`。
 - 不得声称未实际运行的命令、测试或评测已通过。
 - `evals/` 记录端到端场景与原始结果；结果必须可追溯到代码 revision、配置和命令。

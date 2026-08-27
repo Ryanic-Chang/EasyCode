@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M1 已实现可由 fake 驱动的 Agent Loop、ToolRegistry 和安全门；HTTP Provider、真实代码工具与 TUI 仍由后续里程碑实现。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M2 已实现可由本地 fixture 驱动的 Agent Loop、ToolRegistry 与 OpenAI-compatible Provider；真实代码工具与 TUI 仍由后续里程碑实现。
 
 ## 2. 架构目标
 
@@ -48,7 +48,11 @@ src/
     loop.ts            # Agent Loop、上下文推进与终止判断
   llm/
     provider.ts        # Provider、ProviderRequest、ProviderEvent 契约
-    openai-compatible/ # M2：OpenAI-compatible 协议适配
+    openai-compatible/
+      provider.ts      # fetch transport、HTTP 分类与 ProviderEvent 流
+      wire.ts          # Chat Completions 请求/响应映射
+      sse.ts           # UTF-8 与 SSE 增量解析
+      protocol-error.ts # 不携带原始响应的协议异常
   tools/
     tool.ts            # Tool、ToolContext、执行结果契约
     registry.ts        # 显式工具注册、描述与输入准备
@@ -57,14 +61,15 @@ src/
   ui/
     app.tsx            # M4：Ink 应用入口
 tests/
-  unit/                # 纯逻辑与边界测试
-  integration/         # 临时 workspace 中的模块组合测试
+  unit/                # Agent、配置、wire/SSE、HTTP 错误与取消边界
+  integration/         # Agent 与具体 Provider 的离线组合测试
   fixtures/            # 小型、可审查、无敏感信息的 fixture
+  smoke/               # 默认跳过、需显式启用的真实 API smoke
 evals/
   scenarios/           # 可复现的端到端行为场景
 ```
 
-上表包含未来文件位置；`openai-compatible/` 与 `app.tsx` 尚未创建。只有当前里程碑确实需要的文件会进入仓库。
+上表包含未来文件位置；`app.tsx` 尚未创建。只有当前里程碑确实需要的文件会进入仓库。
 
 ## 5. 依赖方向
 
@@ -125,7 +130,18 @@ Provider 的职责：
 - 响应 `AbortSignal`；
 - 保留足够错误分类供 Agent 决定终止，但不自行运行 Agent Loop。
 
-Provider 不负责：执行工具、重放整个会话、修改 workspace、终端渲染或自行无限重试。第一种真实实现计划采用 OpenAI-compatible HTTP API，但核心不依赖 OpenAI SDK。
+Provider 不负责：执行工具、重放整个会话、修改 workspace、终端渲染或自行无限重试。首个具体实现是 `OpenAICompatibleProvider`，使用 Node.js 内建 `fetch` 和可注入 `FetchTransport`，核心不依赖 OpenAI SDK。
+
+该适配器只承诺经过测试的 Chat Completions 子集：
+
+- 向保留 `baseUrl` 前缀的 `/chat/completions` 发起流式 `POST`，发送 `system`、`user`、`assistant`、`tool` 消息和 `function` 工具定义；
+- assistant ToolCall 保持结构化 `id`、name 与 JSON arguments；ToolResult 使用稳定 JSON envelope 编码 `tool_name`、`is_error`、output 与可选 metadata，避免丢失 EasyCode 语义；
+- SSE 解析支持 UTF-8 跨字节、LF/CRLF、跨网络 chunk、单 chunk 多事件、注释、空行、usage-only chunk 和 `[DONE]`；
+- 只接受 `choice.index === 0`，并将 `stop`、`tool_calls`、`length` 映射为明确事件；`content_filter`、旧式 `function_call`、未知完成原因、无明确 finish 的 EOF 和 finish 后尾随数据均拒绝为协议错误；
+- HTTP 鉴权、限流、服务端、其他状态、网络与协议错误使用稳定分类；错误正文、认证 header 与底层异常文本不向 Agent 透传；
+- 调用方的同一个 `AbortSignal` 传入 `fetch` 和流 reader，取消优先保留为 abort，而不是伪装成 Provider 错误。
+
+配置只由 `src/config/config.ts` 在应用边界读取 `EASYCODE_API_KEY`、`EASYCODE_BASE_URL` 与 `EASYCODE_MODEL`。业务模块接收已校验配置，不自行读取 `process.env`。
 
 ToolCall 事件遵守以下协议：
 
@@ -220,7 +236,7 @@ stateDiagram-v2
 | 步数上限 | 下一轮将超过 `maxSteps` | 否 | 不再请求模型或执行工具，以 `max_steps` 终止 |
 | 内部错误 | 工具抛出未知异常、不变量被破坏 | 否 | 脱敏后报告，以 `internal_error` 安全终止 |
 
-M1 不做自动重试。重试会改变请求次数、费用和时序，应在有明确退避策略、幂等性判断和测试后单独引入。
+M2 不做自动重试。Provider 只标记 `retryable`，重试会改变请求次数、费用和时序，应在有明确退避策略、幂等性判断和测试后单独引入。
 
 ## 9. Session 与状态
 
@@ -237,8 +253,9 @@ Provider、Tool 和 UI 不拥有 Session。M1 不创建会话文件；持久化�
 
 测试分三层：
 
-1. **单元测试**：使用 scripted `FakeProvider` 和 fake Tool 覆盖每条状态转换，不访问网络和真实用户文件。
-2. **集成测试**：在临时 workspace 中组合 Agent、工具注册表和具体工具，验证路径边界、取消、超时和输出截断。
-3. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
+1. **单元测试**：使用 scripted `FakeProvider`、fake Tool、注入的 fake `fetch` 与本地 SSE fixture 覆盖状态转换和协议边界，不访问网络和真实用户文件。
+2. **集成测试**：离线组合 Agent、具体 Provider 和 fake Tool，验证跨 chunk ToolCall 最终进入工具执行并回传下一轮；M3 再加入临时 workspace 中的真实工具测试。
+3. **可选 smoke**：只有设置 `EASYCODE_SMOKE=1` 才读取三个 Provider 环境变量并请求真实服务，普通 `npm test` 与 CI 默认跳过。
+4. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。Fake Provider 能按调用轮次输出固定脚本、执行可控 Promise 暂停点并记录请求与 signal；Fake Tool 记录 parse 和 execute。测试由此断言上下文、事件与副作用顺序，而不是只断言最终文本。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；集成测试断言具体 Provider 与 Agent 之间没有协议缝隙。

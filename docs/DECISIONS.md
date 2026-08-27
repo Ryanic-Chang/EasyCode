@@ -1,6 +1,6 @@
 # EasyCode 设计决策记录
 
-本文记录会长期影响实现方式的 M0/M1 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
+本文记录会长期影响实现方式的 M0–M2 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
 
 ## ADR-001：使用 TypeScript + Node.js >= 22
 
@@ -97,3 +97,19 @@
 - **理由**：如果边解析边执行，后续非法调用会导致半轮副作用，且无法满足“非法 ToolCall 的 execute 次数为零”。先验证全部调用能提供清晰、确定且可测试的安全边界。
 - **备选方案**：每个调用验证后立即执行延迟更低，但可能形成部分执行；并行执行更快，但事件、错误归属、取消和副作用顺序更难解释。
 - **后果**：所有 Tool 的 `parse` 必须无副作用；一轮中任一调用无效会拒绝整轮；执行吞吐低于并行方案，但第一版更安全可控。
+
+## ADR-013：使用内建 fetch、手写窄 SSE 解析器并注入 transport
+
+- **状态**：已接受
+- **决策**：`OpenAICompatibleProvider` 使用 Node.js 22 内建 `fetch`；SSE 只实现 Chat Completions 所需的 UTF-8、行、`data` 与事件边界；构造器允许注入 `FetchTransport` 供离线测试使用。
+- **理由**：M2 所需协议面很小，标准能力已经支持流和取消。显式解析器便于逐条验证跨字节、CRLF、EOF 与 reader 清理，不需要引入 SDK 或 SSE 生产依赖；注入 transport 让普通测试不接触网络。
+- **备选方案**：厂商 SDK 或通用 SSE 库能减少部分代码，但会增加生产依赖与隐式行为；全量实现 EventSource 的重连、event/id/retry 语义超出单次 POST 响应需求。
+- **后果**：需要自行维护已声明子集及 fixture；协议扩展必须先增加失败用例。Provider 不自动重连或重试。
+
+## ADR-014：严格限定 Chat Completions 子集并显式保留 ToolResult 语义
+
+- **状态**：已接受
+- **决策**：适配器只消费 `choice.index === 0`，只接受 `stop`、`tool_calls`、`length`，拒绝旧式 `function_call`、未知原因和异常 EOF。assistant ToolCall 映射为标准 `tool_calls`；ToolResult 在 `tool` 消息 content 中使用带 `easycode_tool_result` 命名空间的确定性 JSON envelope 保存工具名、成功/失败、输出和 metadata。
+- **理由**：Agent 需要稳定且无歧义的完成信号；静默接受未知协议会使半截 ToolCall 进入执行边界。OpenAI-compatible tool message 没有可移植字段承载 EasyCode 的 `isError` 与 metadata，显式 envelope 能往返保留语义，也便于测试与未来迁移。
+- **备选方案**：忽略未知 choice/finish 会掩盖兼容问题；只发送纯文本工具输出会丢失可恢复失败语义；把厂商 wire 类型直接暴露给 Agent 会破坏 Provider 边界。
+- **后果**：部分声称兼容但行为不同的服务会明确报 `protocol_error`，需要用 fixture 评估后再扩展；模型会看到一层稳定 JSON envelope。

@@ -2,7 +2,7 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1 已根据具名自动化测试更新状态，M2 之后的行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1、M2 已根据自动化测试和提交前质量门更新状态，M3 之后的行为不会提前标记为完成。
 
 验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、配置、时间和原始输出。不得以截图或口头描述替代可重复检查。
 
@@ -39,11 +39,13 @@ AL-01 至 AL-08 的直接证据位于 `tests/unit/agent-loop.test.ts`；Provider
 
 | 状态 | 验收项 |
 | --- | --- |
-| [ ] | OpenAI-compatible 文本增量被稳定归一化为 `text_delta` |
-| [ ] | 跨多个 chunk 的 ToolCall ID、name 和 arguments 可完整组装，截断时不提交 |
-| [ ] | `stop`、`tool_calls`、`length` 与异常结束均有明确语义 |
-| [ ] | 鉴权、限流、网络、协议和取消错误可区分，且不泄露 key 或认证 header |
-| [ ] | 协议测试使用本地 fixture；默认 CI 不请求真实 API、不读取 secrets |
+| [x] 已验证 | OpenAI-compatible 文本增量被稳定归一化为 `text_delta` |
+| [x] 已验证 | 跨多个 chunk 的 ToolCall ID、name 和 arguments 可完整组装，截断时不提交 |
+| [x] 已验证 | `stop`、`tool_calls`、`length` 与异常结束均有明确语义 |
+| [x] 已验证 | 鉴权、限流、网络、协议和取消错误可区分，且不泄露 key 或认证 header |
+| [x] 已验证 | 协议测试使用本地 fixture；默认 CI 不请求真实 API、不读取 secrets |
+
+M2 的直接证据位于 `tests/unit/config.test.ts`、`tests/unit/openai-compatible-provider.test.ts` 与 `tests/integration/openai-compatible-agent.test.ts`。`tests/smoke/openai-compatible.smoke.test.ts` 只有在显式设置 `EASYCODE_SMOKE=1` 时才读取 Provider 配置并请求真实服务；默认测试对其标记为 skipped。
 
 ## 5. M3 工具验收
 

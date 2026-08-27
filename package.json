@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src tests",
     "test": "vitest run",
+    "test:smoke": "vitest run tests/smoke/openai-compatible.smoke.test.ts",
     "check": "tsc --noEmit && biome check src tests && vitest run && tsc -p tsconfig.build.json"
   },
   "devDependencies": {
