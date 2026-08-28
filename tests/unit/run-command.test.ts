@@ -52,6 +52,27 @@ describe("run_command", () => {
     });
   });
 
+  it("以结构化 stdin 向子进程传递输入且确认摘要不显示正文", async () => {
+    const fixture = await workspace();
+    await fixture.write(
+      "stdin.mjs",
+      'let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => process.stdout.write(input.toUpperCase()));\n',
+    );
+    const tool = new RunCommandTool();
+    const input = tool.parse({
+      executable: process.execPath,
+      args: ["stdin.mjs"],
+      stdin: "private fixture\n",
+      timeoutMs: 5000,
+    });
+    const approval = tool.approval(input);
+    const result = await tool.execute(input, context(fixture.root));
+
+    expect(metadata(result).stdout).toBe("PRIVATE FIXTURE\n");
+    expect(approval.actionSummary).toContain("stdin 16 bytes");
+    expect(approval.actionSummary).not.toContain("private fixture");
+  });
+
   it("shell metacharacter 只作为普通 argv，不执行第二条命令", async () => {
     const fixture = await workspace();
     await fixture.write("argv.mjs", "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
@@ -199,6 +220,10 @@ describe("run_command parse 安全门", () => {
       cwd: ".",
       timeoutMs: 30_000,
     });
+  });
+
+  it.each(["x\0y", "界".repeat(6000)])("拒绝非法或超限 stdin", (stdin) => {
+    expect(() => new RunCommandTool().parse({ executable: "fixture.exe", stdin })).toThrow();
   });
 
   it.each([

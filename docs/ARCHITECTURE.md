@@ -220,7 +220,7 @@ M3 的具体边界如下：
 - 所有模型路径先按 workspace 相对路径校验，再通过 `realpath`/canonical 路径确认实际目标仍在 root 内；`.git`、`.easycode` 与真实 `.env*` 均为保留路径；
 - 目录遍历按稳定顺序执行，不跟随 symlink/junction，并限制深度、条目、扫描文件、匹配数、单文件大小与返回 bytes；直接 symlink 不作为普通文件或目录读取，写入路径中的内部 symlink parent 只有在 canonical parent 仍位于 workspace 时才允许；
 - `apply_patch` 只支持唯一精确替换和排他创建，不支持删除或重命名；更新写入同目录临时文件并在提交前复查原内容，创建通过排他目标语义拒绝覆盖；
-- `run_command` 只接受结构化 `executable`、`args`、workspace 相对 `cwd` 与有界 `timeoutMs`，使用 `shell:false`，过滤敏感环境变量，并拒绝 shell、inline eval、危险 Git、发布、部署与系统级命令；
+- `run_command` 只接受结构化 `executable`、可省略的 `args`、最多 16 KiB 的 UTF-8 `stdin`、workspace 相对 `cwd` 与有界 `timeoutMs`，使用 `shell:false`，过滤敏感环境变量，并拒绝 shell、inline eval、危险 Git、发布、部署与系统级命令；stdin 正文不进入确认摘要；
 - `run_command` 在 parse 和硬拒绝通过后为每次 ToolCall 声明 `ApprovalRequirement`；Agent 生成不受模型控制的 approval ID 并等待对应 decision。允许后才发布 `tool_start` 且最多执行一次；拒绝形成 `approval_denied` ToolResult 回传模型。list/search/read/patch 不需要逐次确认；
 - Windows 的 `npm.cmd`/`.bat` shim 不能在不经过 shell 的前提下可靠启动，因此 M3 明确拒绝这类入口。可直接执行真实 binary，或使用 Node.js 执行 workspace 内已有脚本；后续若支持 package scripts，必须设计不扩大 shell 注入面的独立适配。
 

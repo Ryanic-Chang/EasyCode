@@ -19,6 +19,8 @@ Provider 只在成功 SSE stream 发布 `start` 前对瞬时候选错误有界�
 
 `run_command` 每次执行都需要一次性确认，decision 必须匹配 Agent 生成的当前 approval ID。按 `y` 才允许；`n`、Enter、abort、unmount、dispose、未知或重复 ID 均不允许执行。确认发生在参数解析和硬拒绝之后，因此不能解锁 shell、inline eval、危险 Git、发布、部署、账号/权限或 workspace 外访问。
 
+命令标准输入只能通过最多 16 KiB 的结构化 UTF-8 `stdin` 提供，不解释 shell 管道或重定向。确认摘要只显示 stdin byte 数，不显示正文；stdin 仍会作为模型提供的 ToolCall 参数存在于当前内存会话，因此不得用于传递凭据。
+
 评测使用独立确认策略：只允许场景预声明且在 executable、argv、cwd、timeout 和安全摘要上精确匹配的 fixture 内命令，每条声明最多消费一次；批准前还会确认验证脚本与初始 fixture 的 SHA-256 相同，任一偏差默认拒绝。该策略仅存在于 `evals/`，不会改变产品 TUI 的逐调用人工确认。
 
 ## 评测隔离与报告隐私

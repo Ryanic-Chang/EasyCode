@@ -106,7 +106,7 @@ offline/real eval 报告写入被 Git 忽略的 `.easycode/evals/<runId>.json`�
 
 - 模型输出是不可信输入；整轮 ToolCall 完整组装、工具存在、JSON 与 schema 全部通过后才可能执行；
 - 文件工具只接受 workspace 内相对路径，通过 canonical 路径拒绝穿越和外部 symlink/junction，并保护 `.git`、`.easycode` 与 `.env*`；
-- `apply_patch` 只做唯一精确替换或排他创建；`run_command` 使用 executable + argv、`shell:false`、cwd、timeout、abort、输出上限和敏感环境过滤；
+- `apply_patch` 只做唯一精确替换或排他创建；`run_command` 使用 executable + argv、限长结构化 stdin、`shell:false`、cwd、timeout、abort、输出上限和敏感环境过滤；
 - Provider 只在成功流开始前对 network、timeout、408/409/429/5xx 有界重试，不在流开始后重放。一次逻辑请求的重试仍可能产生重复 API 计费；
 - 这些边界不是容器或 OS 级强沙箱。允许的进程仍拥有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；Session 回滚也不会撤销已完成的文件或命令副作用。
 

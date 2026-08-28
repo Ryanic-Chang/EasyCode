@@ -20,6 +20,8 @@
 
 EasyCode 的 `run_command` 工具使用 `shell:false`，因此不会执行依赖命令解释器的 `.cmd`/`.bat` shim；这是 Agent 工具的安全限制，不表示 Windows 用户不能在 PowerShell 或 cmd 中使用 `npm` 管理、构建或测试项目。package smoke 通过 Node.js 启动当前 `npm_execpath`，不会设置 `shell:true`。
 
+`|`、`>`、`&&` 等 shell 元字符作为 `args` 时只会成为普通参数。需要向程序提供标准输入时，应使用结构化 `stdin` 字段；EasyCode 不会为管道或重定向启动 shell。
+
 ## npm pack、cache 或临时目录失败
 
 先确认系统临时目录和 npm cache 可写，并关闭占用 tarball 或临时安装目录的程序。可用被 Git 忽略的隔离 cache 检查内容：

@@ -13,6 +13,7 @@ const MIN_TIMEOUT_MS = 100;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_ARGUMENTS = 64;
 const MAX_ARGUMENT_BYTES = 4096;
+const MAX_STDIN_BYTES = 16 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 
 const SHELL_EXECUTABLES = new Set(["bash", "cmd", "fish", "powershell", "pwsh", "sh", "wsl", "zsh"]);
@@ -36,6 +37,7 @@ export interface RunCommandInput {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly timeoutMs: number;
+  readonly stdin?: string;
 }
 
 interface OutputCapture {
@@ -99,6 +101,17 @@ function validateCommand(executable: string, args: readonly string[]): void {
   }
 }
 
+function optionalStdin(input: Readonly<Record<string, unknown>>): string | undefined {
+  const value = input.stdin;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.includes("\0") || Buffer.byteLength(value, "utf8") > MAX_STDIN_BYTES) {
+    throw new ToolInputError(`stdin 必须是不含 NUL 且不超过 ${MAX_STDIN_BYTES} bytes 的字符串`);
+  }
+  return value;
+}
+
 function sanitizeEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized: NodeJS.ProcessEnv = {};
   const sensitive = /(^|_)(api_?key|access_?key|authorization|password|passwd|private_?key|secret|token)(_|$)/i;
@@ -160,7 +173,7 @@ async function executeProcess(input: RunCommandInput, cwd: string, signal: Abort
         cwd,
         env: sanitizeEnvironment(process.env),
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
     } catch {
@@ -203,6 +216,10 @@ async function executeProcess(input: RunCommandInput, cwd: string, signal: Abort
 
     child.stdout?.on("data", (chunk: Buffer) => appendOutput(capture, capture.stdout, chunk));
     child.stderr?.on("data", (chunk: Buffer) => appendOutput(capture, capture.stderr, chunk));
+    child.stdin?.on("error", () => {
+      // 子进程提前关闭 stdin 时，最终 close 结果仍是唯一执行结果。
+    });
+    child.stdin?.end(input.stdin ?? "");
     child.on("error", () => {
       spawnFailed = true;
     });
@@ -279,12 +296,17 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       },
       cwd: { type: "string", description: "workspace 相对目录；默认为 ." },
       timeoutMs: { type: "integer", minimum: MIN_TIMEOUT_MS, maximum: MAX_TIMEOUT_MS },
+      stdin: {
+        type: "string",
+        description: `写入子进程的 UTF-8 标准输入；可省略，最多 ${MAX_STDIN_BYTES} bytes`,
+        maxLength: MAX_STDIN_BYTES,
+      },
     },
   } as const;
 
   parse(input: unknown): RunCommandInput {
     const record = requireRecord(input);
-    rejectUnknownKeys(record, ["executable", "args", "cwd", "timeoutMs"]);
+    rejectUnknownKeys(record, ["executable", "args", "cwd", "timeoutMs", "stdin"]);
     const executable = requireString(record, "executable", 1024);
     const rawArgs = record.args ?? [];
     if (!Array.isArray(rawArgs) || rawArgs.length > MAX_ARGUMENTS) {
@@ -301,11 +323,13 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       return argument;
     });
     validateCommand(executable, args);
+    const stdin = optionalStdin(record);
     return {
       executable,
       args,
       cwd: normalizeWorkspacePath(optionalString(record, "cwd", 1024) ?? ".", true),
       timeoutMs: optionalInteger(record, "timeoutMs", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
+      ...(stdin === undefined ? {} : { stdin }),
     };
   }
 
@@ -316,9 +340,10 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       .map((argument) => DEFAULT_REDACTOR.redactText(argument, 256))
       .join(" ");
     const suffix = input.args.length > 12 ? " …[参数已截断]" : "";
+    const stdinSummary = input.stdin === undefined ? "" : ` · stdin ${Buffer.byteLength(input.stdin, "utf8")} bytes`;
     return {
       riskCategory: "command_execution",
-      actionSummary: `executable ${executable} · args ${args}${suffix} · cwd ${DEFAULT_REDACTOR.redactText(input.cwd, 512)} · timeout ${input.timeoutMs} ms`,
+      actionSummary: `executable ${executable} · args ${args}${suffix} · cwd ${DEFAULT_REDACTOR.redactText(input.cwd, 512)} · timeout ${input.timeoutMs} ms${stdinSummary}`,
     };
   }
 
