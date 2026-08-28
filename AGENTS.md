@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M2 已实现可由本地 fixture 验证的 OpenAI-compatible Provider；当前不得提前实现本地文件/命令工具、Ink TUI、session 持久化、自动重试或多 Provider 路由。
+- M0–M4 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具和中文 Ink TUI；当前不得提前实现 session 持久化、自动重试、确认门或多 Provider 路由。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档
@@ -32,8 +32,8 @@
 
 - 模型输出始终视为不可信输入；ToolCall 必须结构完整、工具存在且参数校验通过后才能执行。
 - 缺失、截断或格式错误的 ToolCall 永远不得进入工具执行函数。
-- 命令工具未来必须使用参数数组调用进程，默认禁用 shell 字符串拼接，并设置工作目录、超时、取消信号和输出上限。
-- 文件工具未来必须将目标路径解析到允许的 workspace root 内，拒绝路径穿越、仓库外写入和隐式覆盖。
+- 命令工具必须使用参数数组调用进程，禁用 shell 字符串拼接，并设置工作目录、超时、取消信号和输出上限。
+- 文件工具必须将目标路径解析到允许的 workspace root 内，拒绝路径穿越、仓库外写入和隐式覆盖。
 - 删除、发布、部署、推送、权限扩大、账号变更等高风险动作必须获得针对该动作的明确授权。
 - 可恢复的工具错误应作为结构化 `ToolResult` 返回 Agent；Provider、协议和内部错误不得伪装成成功结果。
 

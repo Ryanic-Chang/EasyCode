@@ -19,4 +19,11 @@ M3 通过 `tests/integration/coding-tools-agent.test.ts` 在每个测试自行�
 
 这些场景不访问网络、真实 API、用户项目或用户主目录，也不使用 shell、npm 或全局命令。
 
+M4 通过 `tests/integration/tui-agent.test.tsx` 增加两条离线 TUI 闭环：
+
+1. 中文任务从 Ink 输入进入 Agent Session，真实 Agent Loop 发布流式文本和工具事件；完成后恢复输入，第二条任务继承第一条成功历史；
+2. Ctrl+C 创建的同一 `AbortSignal` 传播到 Session 和 Fake Provider；取消期间禁止新提交，半截 ToolCall 被回滚，后续任务从上一个已提交历史继续。
+
+纯组件证据位于 `tests/unit/ui-app.test.tsx`，覆盖输入、paste、工具成功/失败、错误与终止、两阶段 Ctrl+C、unmount、无颜色及 120/80/60/40 columns。测试帧不包含真实密钥或 Provider 请求。
+
 未来真实评测仍应记录 fixture、配置、执行命令、代码 revision 和原始结果，并与这些离线单元测试分离。

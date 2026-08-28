@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M3 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider，以及受控 workspace 内的最小代码工具集；TUI 仍由后续里程碑实现。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M4 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider、受控 workspace 内的最小代码工具集，以及中文 Ink TUI。
 
 ## 2. 架构目标
 
@@ -46,6 +46,7 @@ src/
     messages.ts        # Message、ToolCall、ToolResult 等核心会话类型
     events.ts          # UI 可消费的 AgentEvent 与终止原因
     loop.ts            # Agent Loop、上下文推进与终止判断
+    session.ts         # 进程内会话、运行互斥与历史提交/回滚
   llm/
     provider.ts        # Provider、ProviderRequest、ProviderEvent 契约
     openai-compatible/
@@ -67,7 +68,10 @@ src/
   config/
     config.ts          # 配置对象与允许的环境变量名称
   ui/
-    app.tsx            # M4：Ink 应用入口
+    app.tsx            # Ink 应用、终端输入与 AgentRunner 消费
+    input.ts           # Unicode 字素级输入状态机
+    model.ts           # AgentEvent 到终端视图的纯状态投影
+    format.ts          # 工具、结果、错误与终止原因的安全摘要
 tests/
   unit/                # Agent、配置、wire/SSE、HTTP 错误与取消边界
   integration/         # Agent 与具体 Provider 的离线组合测试
@@ -77,7 +81,7 @@ evals/
   scenarios/           # 可复现的端到端行为场景
 ```
 
-上表仅有 `app.tsx` 是未来文件位置，尚未创建。只有当前里程碑确实需要的文件会进入仓库。
+只有当前里程碑确实需要的文件会进入仓库。
 
 ## 5. 依赖方向
 
@@ -210,7 +214,7 @@ Agent 对 UI 发布稳定的产品级事件：
 | `error` | Provider、协议或内部错误 | 展示可操作的中文错误信息 |
 | `complete` | 循环以明确原因结束 | 解除忙碌状态并展示终止原因 |
 
-UI 只依据事件更新视图，不读取 Agent 内部缓冲区。未来即使将 Ink 替换为其他前端，核心循环也不需要修改。
+UI 只依据事件更新视图，不读取 Agent 内部缓冲区。即使未来将 Ink 替换为其他前端，核心循环也不需要修改。
 
 `AgentLoop.run()` 是异步生成器：事件用于实时展示，生成器最终返回 `AgentRunResult`，其中包含终止原因、最终 step 和规范消息快照，供 composition root 管理内存会话与测试断言。
 
@@ -259,16 +263,30 @@ M2 不做自动重试。Provider 只标记 `retryable`，重试会改变请求�
 
 ## 9. Session 与状态
 
-M1 的 Session 状态由单次 `AgentLoop.run()` 在进程内维护，拥有：
+`AgentSession` 是 UI 与 `AgentLoop` 之间的进程内边界，持有已提交的规范 `Message[]` 历史并通过 `AgentRunner` 接口发布带 `runId` 的事件。其规则是：
 
-- 规范 `Message[]` 历史；
-- 当前 step 与 `maxSteps`；
-- 本次运行的 `AbortController`；
-- 只供诊断使用的事件序列或摘要。
+- 初始历史只包含固定中文 system prompt；每次提交把当前 user 消息作为候选历史交给 Agent Loop；
+- 只有 `complete` 才提交本次返回的规范历史；`aborted`、`provider_error`、`protocol_error`、`internal_error` 与 `max_steps` 全部回滚；
+- 同一 Session 同时只允许一个活动 run，忙碌时拒绝新提交；`runId` 单调递增，UI 可以丢弃旧 run 的迟到事件；
+- 调用方创建并拥有 `AbortController`，同一个 `AbortSignal` 从 UI 透传到 Agent、Provider 和 Tool；Session 不伪造取消结果；
+- `maxSteps` 仍属于 `AgentLoop` 的单次运行配置，不由 UI 修改。
 
-Provider、Tool 和 UI 不拥有 Session。M1 不创建会话文件；持久化、恢复、上下文压缩和多会话列表均推迟到证明必要之后。
+Provider、Tool 和 UI 不直接拥有或修改规范历史。M4 不创建会话文件；持久化、恢复、上下文压缩和多会话列表继续后置。
 
-## 10. 测试与评测策略
+## 10. 中文 Ink TUI
+
+TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
+
+- `EasyCodeApp` 只依赖 `AgentRunner`，不知道 OpenAI-compatible Provider、具体工具、文件系统或子进程；真实依赖只在 `src/main.ts` 装配；
+- `uiReducer` 确定性聚合流式 assistant 文本，按调用 ID 关联工具开始与结束，并忽略旧 run、迟到事件和重复终止事件；
+- 输入状态机按 Unicode 字素移动和删除，支持中文、组合字符、emoji 与粘贴规范化；输入、assistant 文本、transcript 和安全摘要均有显式上限；
+- 工具展示只使用白名单字段和 metadata，不默认渲染完整文件、patch 内容或命令输出，并在显示前清理控制字符、隐藏常见凭据；
+- 运行中第一次 `Ctrl+C` abort 当前 run 并进入“取消中”，再次按下只请求在清理完成后退出；空闲时 `Ctrl+C` 直接退出；
+- 单列布局在 120、80、60、40 列下使用终端硬换行；设置 `NO_COLOR` 时不输出颜色控制序列。
+
+`src/main.ts` 是唯一 composition root：从环境变量读取配置，以真实 `process.cwd()` 创建工具上下文，以固定 `maxSteps` 创建 Agent Loop 和 Session，再启动 Ink。配置失败在 Ink 启动前通过稳定中文错误退出；CLI 由 `package.json` 的 `easycode` bin 指向带 shebang 的 `dist/main.js`。
+
+## 11. 测试与评测策略
 
 测试分三层：
 
@@ -277,4 +295,4 @@ Provider、Tool 和 UI 不拥有 Session。M1 不创建会话文件；持久化�
 3. **可选 smoke**：只有设置 `EASYCODE_SMOKE=1` 才读取三个 Provider 环境变量并请求真实服务，普通 `npm test` 与 CI 默认跳过。
 4. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；M3 以临时 workspace 断言路径边界、资源上限、原子修改、命令控制和 Agent 闭环。默认测试不访问网络、用户仓库或真实 API。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；M3 以临时 workspace 断言路径边界、资源上限、原子修改、命令控制和 Agent 闭环；M4 使用 `ink-testing-library` 与纯 reducer 测试覆盖中文输入、流式渲染、工具摘要、取消、会话提交/回滚及 40–120 列布局。默认测试不访问网络、用户仓库或真实 API。

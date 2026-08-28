@@ -2,7 +2,7 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M3 已根据自动化测试和提交前质量门更新状态，M4 之后的行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M4 已根据自动化测试和提交前质量门更新状态，M5 之后的行为不会提前标记为完成。
 
 验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、配置、时间和原始输出。不得以截图或口头描述替代可重复检查。
 
@@ -64,11 +64,13 @@ M3 的直接证据位于 `tests/unit/tool-registry.test.ts`、`tests/unit/worksp
 
 | 状态 | 验收项 |
 | --- | --- |
-| [ ] | 默认用户可见文案为自然简体中文，技术标识保留必要英文 |
-| [ ] | 助手文本可流式显示，工具开始、结束、失败和最终终止状态可区分 |
-| [ ] | UI 只消费 Agent 接口和 `AgentEvent`，不直接调用 Provider 或 Tool |
-| [ ] | Ctrl+C 能取消当前操作；退出行为明确且不会留下子进程 |
-| [ ] | 窄终端、无颜色环境和长输出下仍可阅读，不依赖颜色表达唯一信息 |
+| [x] 已验证 | 默认用户可见文案为自然简体中文，技术标识保留必要英文 |
+| [x] 已验证 | 助手文本可流式显示，工具开始、结束、失败和最终终止状态可区分 |
+| [x] 已验证 | UI 只消费 Agent 接口和 `AgentEvent`，不直接调用 Provider 或 Tool |
+| [x] 已验证 | Ctrl+C 能取消当前操作；退出行为明确并等待当前 Provider/工具清理 |
+| [x] 已验证 | 120、80、60、40 columns、无颜色和长输出下仍可阅读，不依赖颜色表达唯一信息 |
+
+M4 的直接证据位于 `tests/unit/agent-session.test.ts`、`tests/unit/ui-input.test.ts`、`tests/unit/ui-format.test.ts`、`tests/unit/ui-model.test.ts`、`tests/unit/ui-app.test.tsx` 与 `tests/integration/tui-agent.test.tsx`。组件测试通过内存 stdin/stdout 驱动 Ink；集成测试组合 Fake Provider、真实 Agent Loop、Agent Session、fake Tool 与 Ink App，不访问网络、真实 API 或用户 workspace。
 
 ## 7. M5–M7 交付验收
 
