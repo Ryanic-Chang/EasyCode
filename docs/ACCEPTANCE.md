@@ -2,9 +2,9 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M5 已根据自动化测试和提交前质量门更新状态，M6 之后的行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M6 已根据自动化测试和提交前质量门更新状态，M7 行为不会提前标记为完成。
 
-验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、配置、时间和原始输出。不得以截图或口头描述替代可重复检查。
+验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、安全配置、时间和客观断言结果。不得以截图或口头描述替代可重复检查，也不得为“原始证据”持久化会话或工具正文。
 
 ## 2. M0 工程基线
 
@@ -85,11 +85,23 @@ M4 的直接证据位于 `tests/unit/agent-session.test.ts`、`tests/unit/ui-inp
 
 上述证据均为 fake transport、Fake Provider、fake Tool、内存 Ink 或临时 workspace 测试；普通 `npm test` 不访问网络、真实 API、用户 workspace 或已公开密钥。
 
-## 8. M6–M7 交付验收
+## 8. M6 评测与可观测性验收
+
+| ID | 状态 | 验收项 | 证据入口 |
+| --- | --- | --- | --- |
+| M6-01 | [x] 已验证 | 版本化 fixture 和客观 grader 可重复运行；每场景使用独立临时副本，`complete` 不单独代表成功 | `offline-eval.test.ts`、`eval-grader.test.ts`、`npm run eval:offline` |
+| M6-02 | [x] 已验证 | round、attempt、retry、ToolCall、实际执行、成功/失败、approval、usage、阶段耗时和终止指标准确 | `metrics-collector.test.ts`、offline JSON 报告 |
+| M6-03 | [x] 已验证 | usage-only 只在 finish 后发布一次；字段归一化为可选安全整数，缺失值不伪造为零 | `usage-protocol.test.ts`、`openai-compatible-provider.test.ts`、`openai-compatible-agent.test.ts` |
+| M6-04 | [x] 已验证 | 报告含 revision、环境、lock hash、依赖、模型、配置、seed、命令和稳定 schema/hash；grader/预算失败产生非零退出 | `eval-report.test.ts`、`eval-grader.test.ts`、`npm run eval:offline` |
+| M6-05 | [x] 已验证 | 报告、终端摘要和失败路径不保存 prompt、模型/工具正文、ToolCall arguments、secret、认证信息或环境变量 | `eval-report.test.ts`、报告 schema 审查、敏感信息扫描 |
+| M6-06 | [x] 已验证 | offline 与 real 完全隔离；普通测试/CI 无网络、凭据和费用，real 必须显式开关且使用 exact command approval | `offline-eval.test.ts`、`eval-report.test.ts`、`.github/workflows/ci.yml` |
+
+M6 固定场景定义见 `evals/scenarios/catalog.ts`，说明见 `evals/scenarios/README.md`。运行报告位于被忽略的 `.easycode/evals/`；它是本地验收产物，不提交到 Git。M6 验收未运行 `npm run eval:real` 或真实 smoke。
+
+## 9. M7 交付验收
 
 | 状态 | 验收项 |
 | --- | --- |
-| [ ] | 场景评测记录 revision、环境、依赖、模型、配置、命令和原始结果 |
 | [ ] | Windows、macOS、Linux 的最低支持范围经过实际验证或明确标注限制 |
 | [ ] | 从干净环境执行 `npm ci` 和 `npm run check` 可复现通过结果 |
 | [ ] | README 包含安装、配置、使用、安全边界、故障排查和已知限制 |

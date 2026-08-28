@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M5 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider、受控 workspace 内的最小代码工具集、中文 Ink TUI，以及有界恢复、统一脱敏和逐调用确认边界。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M6 已在既有 Agent、Provider、工具、TUI 与安全恢复边界外增加只读事件指标和隔离评测系统。
 
 ## 2. 架构目标
 
@@ -83,13 +83,20 @@ src/
     redaction.ts       # 统一文本与 JSON-safe metadata 脱敏/总量限制
     tool-result.ts     # Agent 边界的 ToolExecutionResult 再清理
     logger.ts          # 不含正文的最小安全日志契约
+  metrics/
+    collector.ts       # 消费公开 AgentEvent 的聚合指标与注入时钟
 tests/
   unit/                # Agent、配置、wire/SSE、HTTP 错误与取消边界
   integration/         # Agent 与具体 Provider 的离线组合测试
   fixtures/            # 小型、可审查、无敏感信息的 fixture
   smoke/               # 默认跳过、需显式启用的真实 API smoke
 evals/
-  scenarios/           # 可复现的端到端行为场景
+  core/                # 场景、预算、证据与报告 schema
+  fixtures/v1/         # 版本化 synthetic fixture repository
+  scenarios/           # 固定中文任务、客观断言与 scripted 响应
+  runtime/             # 临时副本、精确批准、runner 与 grader
+  report/              # 复现元数据、hash 与原子 JSON 写入
+  cli/                 # 完全分离的 offline/real 入口
 ```
 
 只有当前里程碑确实需要的文件会进入仓库。
@@ -227,6 +234,7 @@ Agent 对 UI 发布稳定的产品级事件：
 | --- | --- | --- |
 | `turn_start` | 新模型轮次开始 | 展示步骤编号与忙碌状态 |
 | `assistant_delta` | 助手文本增量 | 流式追加文本 |
+| `usage` | 当前轮次 finish 后的可选 token usage | UI 忽略；指标采集器聚合 |
 | `provider_retry` | Provider 将在当前 step 内重试 | 显示安全错误分类、次数与 delay |
 | `approval_required` | 当前 ToolCall 等待一次性确认 | 进入等待确认并展示安全摘要 |
 | `approval_resolved` | 当前确认已允许或拒绝 | 固化选择并恢复运行态 |
@@ -319,6 +327,11 @@ TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 1. **单元测试**：使用 scripted `FakeProvider`、fake Tool、注入的 fake `fetch` 与本地 SSE fixture 覆盖状态转换和协议边界，不访问网络和真实用户文件。
 2. **集成测试**：离线组合 Agent、具体 Provider 和 Tool；M2 验证跨 chunk ToolCall，M3 在临时 workspace 中用真实工具验证“搜索/读取—修改—命令验证—最终回答”及失败 ToolResult 回传。
 3. **可选 smoke**：只有设置 `EASYCODE_SMOKE=1` 才读取三个 Provider 环境变量并请求真实服务，普通 `npm test` 与 CI 默认跳过。
-4. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
+4. **离线评测**：`npm run eval:offline` 以 scripted Provider 运行版本化场景，复制 fixture 到独立临时 workspace；grader 检查文件内容/hash、非预期修改、结构化验证程序、终止与预算，进入普通 CI。
+5. **真实评测**：`npm run eval:real` 只有 `EASYCODE_REAL_EVAL=1` 和完整 Provider 配置同时存在才启动，不进入普通测试或 CI；命令只能由评测专用 exact-match 策略批准。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 以注入 sleep/random/timer/request ID 的 fake transport、恶意 fake Tool、ApprovalBroker 和六个离线恢复场景断言不可重放、脱敏、确认及资源一致性。默认测试不访问网络、用户仓库或真实 API。
+`ProviderUsage` 的三个 token 字段都是可选非负安全整数。OpenAI-compatible Provider 仅在明确 finish 之后接受至多一个 usage-only chunk，并将其发布为 `ProviderEvent`；Agent 原序映射为 `AgentEvent`，不写入 Message 历史。未提供字段保持 `undefined`。`MetricsCollector` 只消费公开事件，以可注入单调时钟统计 rounds、attempts、retries、ToolCall、实际执行、成功/失败、approval、usage、各阶段耗时和终止原因，不改变业务结果。
+
+JSON 报告以 `schemaVersion=1.0.0` 开始，包含安全复现元数据、每场景聚合指标与未聚合断言记录，以及对不含 `reportHash` payload 的 SHA-256。写入流程先在目标目录创建临时文件，再原子 rename；异常会清理临时文件。报告不是会话 trace：任务、模型文本、ToolCall arguments、ToolResult 正文、API key、Authorization、完整 URL query 和环境变量均不进入 schema。wall-clock duration 只用于观察，不作为离线确定性比较项。
+
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 断言不可重放、脱敏、确认及资源一致性；M6 断言 usage、精确指标、隔离 fixture、客观 grader、预算、原子报告、隐私与真实开关。默认测试和 offline eval 不访问网络、用户仓库或真实 API。

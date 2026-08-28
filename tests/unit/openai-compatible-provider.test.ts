@@ -65,6 +65,7 @@ describe("OpenAI-compatible 请求适配", () => {
       { type: "start" },
       { type: "text_delta", delta: "完成" },
       { type: "finish", reason: "stop" },
+      { type: "usage", usage: { totalTokens: 3 } },
     ]);
 
     expect(recorder.calls).toHaveLength(1);
@@ -221,6 +222,7 @@ describe("OpenAI-compatible SSE 归一化", () => {
     await expect(collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest))).resolves.toEqual([
       { type: "start" },
       { type: "finish", reason: "stop" },
+      { type: "usage", usage: { totalTokens: 7 } },
     ]);
   });
 

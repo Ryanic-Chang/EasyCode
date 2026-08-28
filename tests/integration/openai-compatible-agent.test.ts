@@ -35,6 +35,7 @@ describe("OpenAI-compatible Provider 与 Agent Loop 集成", () => {
     expect(run.events).toEqual([
       { type: "turn_start", step: 1 },
       { type: "assistant_delta", step: 1, delta: "离线完成" },
+      { type: "usage", step: 1, usage: { totalTokens: 3 } },
       { type: "complete", step: 1, reason: "complete" },
     ]);
     expect(recorder.calls).toHaveLength(1);

@@ -1,3 +1,4 @@
+import type { ProviderUsage } from "../llm/provider.js";
 import type { ApprovalRequest } from "./approval.js";
 import type { ToolCall, ToolResult } from "./messages.js";
 
@@ -31,6 +32,7 @@ export type AgentErrorCode =
 export type AgentEvent =
   | { readonly type: "turn_start"; readonly step: number }
   | { readonly type: "assistant_delta"; readonly step: number; readonly delta: string }
+  | { readonly type: "usage"; readonly step: number; readonly usage: ProviderUsage }
   | {
       readonly type: "provider_retry";
       readonly step: number;

@@ -145,6 +145,8 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         ...state,
         transcript: appendAssistantDelta(state.transcript, action.runId, event.step, event.delta),
       };
+    case "usage":
+      return state;
     case "provider_retry":
       return {
         ...state,

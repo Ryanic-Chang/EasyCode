@@ -316,6 +316,7 @@ export class OpenAICompatibleProvider implements Provider {
     callerSignal: AbortSignal | undefined,
   ): AsyncIterable<ProviderEvent> {
     let sawFinish = false;
+    let sawUsage = false;
     try {
       for await (const payload of parseSseData(stream, attempt.signal)) {
         throwIfCallerAborted(callerSignal);
@@ -328,9 +329,11 @@ export class OpenAICompatibleProvider implements Provider {
 
         const chunk = parseChatCompletionChunk(payload);
         if (chunk.usageOnly) {
-          if (!sawFinish) {
+          if (!sawFinish || sawUsage || chunk.events.length !== 1 || chunk.events[0]?.type !== "usage") {
             throw new OpenAICompatibleProtocolError();
           }
+          sawUsage = true;
+          yield chunk.events[0];
           continue;
         }
         if (sawFinish) {

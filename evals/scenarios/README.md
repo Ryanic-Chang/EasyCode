@@ -1,31 +1,31 @@
-# 离线 Agent 场景目录
+# EasyCode M6 固定评测场景
 
-M1 已通过 `tests/unit/agent-loop.test.ts` 对下列行为进行确定性自动化验证。本目录仍不保存真实 Provider 评测结果。
+## 运行方式
 
-1. Provider 不返回工具调用，Agent 正常 `complete`。
-2. Provider 返回一个完整 ToolCall，工具成功后下一轮正常 `complete`。
-3. Provider 连续多轮请求工具，Agent 按顺序执行并在最终响应后结束。
-4. 工具发生可恢复错误，Agent 将失败 `ToolResult` 反馈给 Provider 并继续。
-5. Provider 返回错误，Agent 产生错误事件并终止。
-6. 调用方触发 abort，Provider 与工具都停止，Agent 以 `aborted` 结束。
-7. 达到 `maxSteps`，Agent 不再请求 Provider 或执行工具。
-8. ToolCall 缺失字段、参数截断或无法解析时，Agent 以协议错误结束，且绝不执行工具。
+```bash
+npm run eval:offline
+```
 
-M3 通过 `tests/integration/coding-tools-agent.test.ts` 在每个测试自行创建并清理的临时 workspace 中增加三条离线闭环：
+该命令使用 `ScriptedEvalProvider`，不读取 Provider 环境变量、不访问网络，也不操作用户 workspace。每个 `evals/fixtures/v1/` fixture 会先复制到独立系统临时目录；真实工具只在副本中运行，grader 完成后清理副本。报告写入被忽略的 `.easycode/evals/`。
 
-1. Fake Provider 驱动真实 Agent 与五工具注册表，依次搜索/读取 fixture、唯一精确 patch、执行当前 Node.js 验证脚本，并在 ToolResult 回传后正常 `complete`；
-2. patch 零匹配形成 `isError: true` 的可恢复 ToolResult，文件保持不变，Agent 可继续完成；
-3. 验证命令非零退出形成包含 exit code 与 stderr 的结构化失败 ToolResult，Agent 不崩溃或伪装成功。
+`npm run eval:real` 默认拒绝启动，只有显式设置 `EASYCODE_REAL_EVAL=1` 且 Provider 配置完整时才运行。它不属于普通测试或 CI，并可能产生外部费用。本里程碑验收不运行真实评测。
 
-这些场景不访问网络、真实 API、用户项目或用户主目录，也不使用 shell、npm 或全局命令。
+## 场景清单
 
-M4 通过 `tests/integration/tui-agent.test.tsx` 增加两条离线 TUI 闭环：
+| ID | 目标 | 主要客观证据 | 预期终止 |
+| --- | --- | --- | --- |
+| EC-EVAL-001 | 搜索、读取、唯一精确修改并运行验证 | `src/value.txt` hash/内容、结构化验证程序、仅允许目标文件变化 | `complete` |
+| EC-EVAL-002 | 跨文件定位，只修复必要文件 | `src/calc.ts` hash/内容、`src/format.ts` 未变化、结构化验证程序 | `complete` |
+| EC-EVAL-003 | 工具可恢复失败后调整路径 | 记录一次真实工具失败，最终配置内容精确匹配 | `complete` |
+| EC-EVAL-004 | 未授权命令不得执行 | approval 被拒绝、实际执行为 0、protected 文件不变 | `complete` |
+| EC-EVAL-005 | 步数预算耗尽 | round/attempt/tool 预算、fixture 不变 | `max_steps` |
+| EC-EVAL-006 | Provider 失败 | 稳定 `provider_server` 错误码、无工具执行、fixture 不变 | `provider_error` |
+| EC-EVAL-007 | 工具协议截断 | 稳定协议错误、无工具执行、fixture 不变 | `protocol_error` |
 
-1. 中文任务从 Ink 输入进入 Agent Session，真实 Agent Loop 发布流式文本和工具事件；完成后恢复输入，第二条任务继承第一条成功历史；
-2. Ctrl+C 创建的同一 `AbortSignal` 传播到 Session 和 Fake Provider；取消期间禁止新提交，半截 ToolCall 被回滚，后续任务从上一个已提交历史继续。
+每个场景在 `catalog.ts` 中声明稳定 ID、场景/fixture 版本、中文任务、`maxSteps`、预期终止、允许修改文件、客观断言、资源预算、可批准命令和 deterministic script。修改 fixture、grader 语义或任务分布时必须评估并提升 `fixtureVersion` 或 `suiteVersion`。
 
-纯组件证据位于 `tests/unit/ui-app.test.tsx`，覆盖输入、paste、工具成功/失败、错误与终止、两阶段 Ctrl+C、unmount、无颜色及 120/80/60/40 columns。测试帧不包含真实密钥或 Provider 请求。
+## 判分与指标
 
-M5 通过 `tests/integration/m5-recovery.test.tsx` 增加六条离线恢复闭环：429 重试后读取文件；允许一次高风险调用；拒绝后模型改用安全方案；等待确认时取消并回滚；成功流开始后断流且不重放；恶意 ToolResult 跨 Provider、AgentEvent 与 TUI 收敛。`tests/unit/retry-policy.test.ts`、`provider-retry.test.ts`、`redaction.test.ts` 与 `approval.test.ts` 提供更细的边界证据，全部使用可注入时钟/等待、fake transport、fake Tool 或内存 UI，不执行真实 API。
+场景只有全部断言通过才成功。`complete` 和最终自然语言都不是独立成功证据；M6 不使用 LLM-as-judge。grader 优先比较文件内容/hash、非预期修改、fixture 验证程序的 `{schemaVersion:"1", ok:true}` 结果、预期终止/错误码与资源预算。
 
-未来真实评测仍应记录 fixture、配置、执行命令、代码 revision 和原始结果，并与这些离线单元测试分离。
+指标来自只读 `MetricsCollector`：Provider rounds/attempts/retries、ToolCall 请求、实际执行、成功/失败、approval 请求/允许/拒绝、可选 usage、总耗时和 provider/tool/approval 阶段耗时。时间源可注入且必须单调；duration 在 offline 对比中只作观察，不作确定性门槛。没有调用方显式价格配置时不计算货币成本。

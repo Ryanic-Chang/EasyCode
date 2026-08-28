@@ -2,7 +2,7 @@
 
 EasyCode 是一个中文优先、可解释、可验证的轻量 Coding Agent 项目。
 
-当前仓库已完成 **M5 安全性与可恢复性**：除中文 Ink TUI、Agent Loop、OpenAI-compatible Provider 和五个受控代码工具外，现已具备稳定错误分类、有界重试与 timeout、统一脱敏、ToolResult 总量限制及 `run_command` 逐调用确认。默认测试仍完全离线。
+当前仓库已完成 **M6 评测与可观测性**：除中文 Ink TUI、Agent Loop、OpenAI-compatible Provider、五个受控代码工具及 M5 安全恢复边界外，现已具备版本化 synthetic fixture、客观 grader、公开事件指标和原子 JSON 报告。默认测试与 offline eval 均完全离线。
 
 ## 安装与启动
 
@@ -28,6 +28,22 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+npm run eval:offline
+```
+
+## 测试与评测
+
+- `npm test` 验证模块和集成契约，使用 fake、fixture 与临时目录，不调用真实服务。
+- `npm run eval:offline` 运行 7 个版本化 coding 场景，以 scripted Provider 驱动真实 Agent Loop 和代码工具；场景副本位于独立临时 workspace，固定 fixture 不会被修改。该命令进入普通 CI。
+- `npm run eval:real` 是可选真实 Provider 评测，默认安全拒绝。只有显式设置 `EASYCODE_REAL_EVAL=1` 且 Provider 配置完整时才会启动；它不进入 `npm test` 或 CI，本仓库验收不运行该命令。
+
+offline/real 报告写入被 `.gitignore` 排除的 `.easycode/evals/<runId>.json`。报告带 `schemaVersion` 和 SHA-256 `reportHash`，记录 revision、dirty 状态、Node/平台、lockfile hash、顶层依赖、模型、重试配置、seed、规范化命令、客观断言、终止与聚合指标。报告不保存任务、模型消息、工具参数或结果正文、API key、Authorization、URL query 和环境变量。
+
+真实评测会调用外部模型并可能产生费用；启用示例（值仅放在当前进程环境）：
+
+```powershell
+$env:EASYCODE_REAL_EVAL = "1"
+npm run eval:real
 ```
 
 ## Provider 配置

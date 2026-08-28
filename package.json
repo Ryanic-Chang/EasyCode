@@ -13,11 +13,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests",
+    "lint": "biome check src tests evals",
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:smoke": "vitest run tests/smoke/openai-compatible.smoke.test.ts",
-    "check": "tsc --noEmit && biome check src tests && vitest run && tsc -p tsconfig.build.json"
+    "eval:build": "tsc -p tsconfig.eval.json",
+    "eval:offline": "npm run eval:build --silent && node .easycode/eval-dist/evals/cli/offline.js",
+    "eval:real": "npm run eval:build --silent && node .easycode/eval-dist/evals/cli/real.js",
+    "check": "tsc --noEmit && biome check src tests evals && vitest run && tsc -p tsconfig.build.json"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",

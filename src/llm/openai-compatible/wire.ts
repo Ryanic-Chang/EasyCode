@@ -1,4 +1,4 @@
-import type { ProviderEvent, ProviderMessage, ProviderRequest } from "../provider.js";
+import type { ProviderEvent, ProviderMessage, ProviderRequest, ProviderUsage } from "../provider.js";
 import { OpenAICompatibleProtocolError } from "./protocol-error.js";
 
 type JsonRecord = Readonly<Record<string, unknown>>;
@@ -8,7 +8,29 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function optionalTokenCount(record: JsonRecord, key: string): number | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isNonNegativeInteger(value)) {
+    throw new OpenAICompatibleProtocolError();
+  }
+  return value;
+}
+
+function parseUsage(value: JsonRecord): ProviderUsage {
+  const inputTokens = optionalTokenCount(value, "prompt_tokens");
+  const outputTokens = optionalTokenCount(value, "completion_tokens");
+  const totalTokens = optionalTokenCount(value, "total_tokens");
+  return {
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(totalTokens === undefined ? {} : { totalTokens }),
+  };
 }
 
 function stringifyJson(value: unknown): string {
@@ -157,7 +179,7 @@ export function parseChatCompletionChunk(payload: string): ParsedChunk {
     if (!isRecord(parsed.usage)) {
       throw new OpenAICompatibleProtocolError();
     }
-    return { events: [], usageOnly: true };
+    return { events: [{ type: "usage", usage: parseUsage(parsed.usage) }], usageOnly: true };
   }
   if (parsed.choices.length !== 1) {
     throw new OpenAICompatibleProtocolError();

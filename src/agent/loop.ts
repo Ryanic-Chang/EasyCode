@@ -7,6 +7,7 @@ import type {
   ProviderMessage,
   ProviderRequest,
   ProviderToolDefinition,
+  ProviderUsage,
 } from "../llm/provider.js";
 import { Redactor } from "../security/redaction.js";
 import { sanitizeToolExecutionResult } from "../security/tool-result.js";
@@ -121,6 +122,20 @@ function snapshot(reason: AgentTerminationReason, step: number, messages: readon
 
 function isJsonObject(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isValidTokenCount(value: number | undefined): boolean {
+  return value === undefined || (Number.isSafeInteger(value) && value >= 0);
+}
+
+function isValidUsage(usage: ProviderUsage): boolean {
+  const allowed = new Set(["inputTokens", "outputTokens", "totalTokens"]);
+  return (
+    Object.keys(usage).every((key) => allowed.has(key)) &&
+    isValidTokenCount(usage.inputTokens) &&
+    isValidTokenCount(usage.outputTokens) &&
+    isValidTokenCount(usage.totalTokens)
+  );
 }
 
 function isNonEmptyField(value: string): boolean {
@@ -340,13 +355,14 @@ export class AgentLoop {
       let content = "";
       const buffers = new Map<number, ToolCallBuffer>();
       let finishReason: "stop" | "tool_calls" | "length" | undefined;
+      let usageSeen = false;
       let phase: "provider" | "validation" | "approval" | "tool" = "provider";
 
       try {
         const stream = this.#provider.stream(buildRequest(this.#model, messages, this.#tools), { signal });
         for await (const event of stream) {
           signal.throwIfAborted();
-          if (finishReason !== undefined) {
+          if (finishReason !== undefined && event.type !== "usage") {
             throw new ProtocolViolation("finish 之后不能再出现 ProviderEvent");
           }
 
@@ -366,6 +382,13 @@ export class AgentLoop {
             case "text_delta":
               content += event.delta;
               yield { type: "assistant_delta", step, delta: event.delta };
+              break;
+            case "usage":
+              if (finishReason === undefined || usageSeen || !isValidUsage(event.usage)) {
+                throw new ProtocolViolation("usage 必须在 finish 后出现且最多一次");
+              }
+              usageSeen = true;
+              yield { type: "usage", step, usage: event.usage };
               break;
             case "tool_call":
             case "tool_call_delta":

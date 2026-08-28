@@ -63,6 +63,7 @@ describe("M5 Provider 有界重试", () => {
       { type: "start" },
       { type: "text_delta", delta: "完成" },
       { type: "finish", reason: "stop" },
+      { type: "usage", usage: { totalTokens: 3 } },
     ]);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(cancel).toHaveBeenCalledOnce();

@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M0–M5 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI，以及有界重试、统一脱敏和逐调用确认门；当前不得提前实现 session 持久化、完整指标平台或多 Provider 路由。
+- M0–M6 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI、安全恢复边界，以及离线确定性评测与事件指标；当前不得提前实现 session 持久化、远程 telemetry、dashboard 或多 Provider 路由。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档
@@ -25,6 +25,8 @@
 - `src/llm/` 负责 Provider 抽象、协议适配和流式事件归一化；不得决定 Agent Loop 或执行工具。
 - `src/tools/` 负责工具定义、输入验证与受控执行；不得依赖 UI 或具体 Provider。
 - `src/config/` 负责配置读取与校验；配置对象由 composition root 显式注入，业务模块不得散落读取环境变量。
+- `src/metrics/` 只消费公开 `AgentEvent` 并生成聚合指标；不得改变事件顺序、Agent 结果或记录事件正文。
+- `evals/` 可以依赖公开生产模块并装配隔离场景；生产入口不得反向依赖评测代码。
 - 生产代码不得从 `tests/` 或 `evals/` 导入。
 - 跨模块共享应通过最小公开类型完成；禁止为图省事而导入其他模块的内部实现。
 
@@ -60,7 +62,9 @@
 - Provider 协议测试必须注入 fake `fetch` 并使用本地 fixture；真实 API smoke 必须显式启用，默认测试和 CI 不得读取 secrets 或访问网络。
 - 修改后至少运行与风险相称的检查；提交前运行 `npm run check`。
 - 不得声称未实际运行的命令、测试或评测已通过。
-- `evals/` 记录端到端场景与原始结果；结果必须可追溯到代码 revision、配置和命令。
+- `npm test`、`npm run eval:offline` 与 `npm run eval:real` 是三种不同证据：前两者不得联网，真实评测必须显式设置 `EASYCODE_REAL_EVAL=1`，且不得进入普通 CI。
+- `evals/` 中的固定 fixture 与场景定义可以入库；运行报告只写入被忽略的 `.easycode/evals/`。报告不得包含消息正文、ToolCall arguments、ToolResult 正文、凭据、完整 query 或环境变量。
+- offline eval 必须复制 fixture 到独立临时 workspace，使用客观 grader；不能把 `complete` 或自然语言关键词单独判为成功。
 
 ## Git 与变更纪律
 

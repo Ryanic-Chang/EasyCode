@@ -19,6 +19,15 @@ Provider 只在成功 SSE stream 发布 `start` 前对瞬时候选错误有界�
 
 `run_command` 每次执行都需要一次性确认，decision 必须匹配 Agent 生成的当前 approval ID。按 `y` 才允许；`n`、Enter、abort、unmount、dispose、未知或重复 ID 均不允许执行。确认发生在参数解析和硬拒绝之后，因此不能解锁 shell、inline eval、危险 Git、发布、部署、账号/权限或 workspace 外访问。
 
+评测使用独立确认策略：只允许场景预声明且在 executable、argv、cwd、timeout 和安全摘要上精确匹配的 fixture 内命令，每条声明最多消费一次；批准前还会确认验证脚本与初始 fixture 的 SHA-256 相同，任一偏差默认拒绝。该策略仅存在于 `evals/`，不会改变产品 TUI 的逐调用人工确认。
+
+## 评测隔离与报告隐私
+
+- offline eval 不读取 Provider 环境变量，不使用 HTTP Provider；每次先把受版本控制的 fixture 复制到系统临时目录，工具只接收该副本作为 workspace，结束后清理。
+- grader 只持久化断言 ID、真假、hash/数量、终止、错误码和聚合指标。任务、用户/模型消息、ToolCall arguments、ToolResult 正文、API key、Authorization、完整 URL query、环境变量和 workspace diff 正文不进入报告。
+- 报告写入 `.easycode/evals/`，先写同目录临时文件再 rename，并以 payload SHA-256 校验完整性；该目录被 Git 忽略。
+- `eval:real` 默认关闭，开关检查先于 Provider 配置读取。真实 Provider 输出不会进入受版本控制的 fixture 或报告正文，也不会自动替换任何基线。
+
 ## 明确限制
 
 EasyCode 的 workspace、命令白/黑名单、timeout、取消和确认门不是容器或 OS 级强沙箱。被允许的进程仍具有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；当前实现不保证完整进程树隔离。Session 回滚只恢复模型历史，不能撤销已经完成的文件或命令副作用。

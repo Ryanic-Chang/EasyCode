@@ -158,3 +158,24 @@
 - **决策**：Tool 在 `parse` 后声明 `ApprovalRequirement`，Agent 为每次调用生成独立 opaque ID。只有匹配该 ID 的一次性允许决定后才能发布 `tool_start`。`run_command` 总是需要确认；read/list/search/patch 不需要。拒绝作为结构化 ToolResult 回传模型，abort/dispose 清除 pending。
 - **理由**：会话级永久允许会扩大一次意图的权限；在 parse 前询问会让确认机制绕过 M3 硬拒绝。默认拒绝能让 Enter、取消、unmount 和未知 ID 保持安全。
 - **后果**：同轮多个高风险调用按顺序分别确认；确认不是 OS sandbox，也不解锁 shell、危险 Git、发布、部署或 workspace 外访问。
+
+## ADR-021：usage 是 finish 后的独立事件，不进入会话历史
+
+- **状态**：已接受
+- **决策**：`inputTokens`、`outputTokens`、`totalTokens` 均为可选非负安全整数。OpenAI-compatible 流只在明确 finish 后接受至多一个 usage-only chunk；Provider 与 Agent 依次发布 `usage` 事件，Message 历史不保存 usage。
+- **理由**：token 统计属于观测事实，不是模型上下文。缺失字段补零会把 unknown 伪造成真实零值；允许任意 finish 后事件会削弱已有协议完整性。
+- **后果**：调用方必须显式处理字段缺失和多轮覆盖完整性；UI 可以忽略 usage，指标模块通过公开事件独立聚合。
+
+## ADR-022：M6 使用隔离 synthetic fixture 与客观 grader
+
+- **状态**：已接受
+- **决策**：每个版本化场景声明中文任务、fixture、`maxSteps`、预期终止、允许修改文件、客观断言与预算。每次运行把 fixture 复制到独立临时 workspace；成功必须由文件/hash、结构化验证程序、修改集合、终止和预算共同判定。禁止 LLM-as-judge。
+- **理由**：Agent 的自然语言结论和 `complete` 不能证明代码任务完成。固定输入和程序化断言能把行为回归与模型表达波动分离，并阻止评测修改原 fixture 或用户项目。
+- **后果**：场景只覆盖小型 synthetic coding 任务，不代表真实项目能力上限；fixture 与 suite 变化必须提升版本。real eval 仍受同一 grader 和 exact command approval 约束。
+
+## ADR-023：指标旁路采集，报告采用隐私最小化 schema 与原子写入
+
+- **状态**：已接受
+- **决策**：`MetricsCollector` 只消费公开 `AgentEvent`，时间源以单调函数注入。报告只保存复现元数据、聚合指标、终止/错误码和安全断言记录，不序列化事件或会话正文；payload hash 后通过临时文件 + rename 提交到 `.easycode/evals/`。
+- **理由**：旁路采集避免可观测性改变业务顺序；注入时钟消除测试 sleep；窄 schema 同时满足失败证据和最少披露，原子提交避免半份 JSON 被误认作完整结果。
+- **后果**：M6 没有 trace、远程日志、OpenTelemetry、数据库或 dashboard；duration 仅供观察。没有显式价格配置时不计算货币成本。

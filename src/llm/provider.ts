@@ -68,6 +68,12 @@ export interface ProviderError {
   readonly retryable: boolean;
 }
 
+export interface ProviderUsage {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+}
+
 export type ProviderEvent =
   | { readonly type: "start" }
   | { readonly type: "text_delta"; readonly delta: string }
@@ -86,6 +92,7 @@ export type ProviderEvent =
       readonly arguments: unknown;
     }
   | { readonly type: "finish"; readonly reason: "stop" | "tool_calls" | "length" }
+  | { readonly type: "usage"; readonly usage: ProviderUsage }
   | {
       readonly type: "retry";
       readonly attempt: number;
