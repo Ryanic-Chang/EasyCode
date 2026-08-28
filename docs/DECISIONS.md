@@ -1,6 +1,6 @@
 # EasyCode 设计决策记录
 
-本文记录会长期影响实现方式的 M0–M2 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
+本文记录会长期影响实现方式的 M0–M3 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
 
 ## ADR-001：使用 TypeScript + Node.js >= 22
 
@@ -113,3 +113,11 @@
 - **理由**：Agent 需要稳定且无歧义的完成信号；静默接受未知协议会使半截 ToolCall 进入执行边界。OpenAI-compatible tool message 没有可移植字段承载 EasyCode 的 `isError` 与 metadata，显式 envelope 能往返保留语义，也便于测试与未来迁移。
 - **备选方案**：忽略未知 choice/finish 会掩盖兼容问题；只发送纯文本工具输出会丢失可恢复失败语义；把厂商 wire 类型直接暴露给 Agent 会破坏 Provider 边界。
 - **后果**：部分声称兼容但行为不同的服务会明确报 `protocol_error`，需要用 fixture 评估后再扩展；模型会看到一层稳定 JSON envelope。
+
+## ADR-015：M3 使用固定工具集、canonical workspace 边界与窄命令协议
+
+- **状态**：已接受
+- **决策**：M3 只显式注册 `list_directory`、`search_files`、`read_file`、`apply_patch`、`run_command`。文件工具只接受 workspace 相对路径，并在执行时通过 canonical 路径阻止 symlink/junction 越界；修改只提供唯一精确替换与排他创建。命令只接受 executable + argv、相对 cwd 与有界 timeout，使用 `shell:false`，并过滤敏感环境变量及拒绝已知高风险入口。
+- **理由**：固定协议便于模型理解、运行时校验和离线验收。词法路径检查不足以阻止链接越界，canonical 检查是必要的第二道边界；精确 patch 能检测陈旧上下文，避免整文件盲写。Windows 的 `npm.cmd`/`.bat` 依赖命令解释器，Node.js 在 `shell:false` 下不能把它当作可移植 binary，因此 M3 明确拒绝 shim，而不为 package scripts 打开 shell。
+- **备选方案**：递归调用外部搜索工具会增加平台和安装依赖；整文件覆盖、shell 字符串或自动批准任意命令更灵活，但审查性和安全边界明显更差；容器或 OS sandbox 的隔离更强，但超出 M3 范围。
+- **后果**：目录、搜索、文件和输出均受固定上限约束；不支持删除、重命名、shell pipeline、Windows npm shim 或 package script 专用入口。当前控制不是强沙箱，允许的进程仍拥有宿主用户权限，直接子进程之外的进程树终止能力需要后续单独设计。

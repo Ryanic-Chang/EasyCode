@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M2 已实现可由本地 fixture 驱动的 Agent Loop、ToolRegistry 与 OpenAI-compatible Provider；真实代码工具与 TUI 仍由后续里程碑实现。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M3 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider，以及受控 workspace 内的最小代码工具集；TUI 仍由后续里程碑实现。
 
 ## 2. 架构目标
 
@@ -56,6 +56,14 @@ src/
   tools/
     tool.ts            # Tool、ToolContext、执行结果契约
     registry.ts        # 显式工具注册、描述与输入准备
+    coding-tools.ts    # M3 五个代码工具的显式注册入口
+    workspace.ts       # 相对路径、canonical 边界与保留路径策略
+    text.ts            # UTF-8、二进制、文件大小与输出上限
+    list-directory.ts  # 有界目录列举
+    search-files.ts    # 本地 literal 搜索
+    read-file.ts       # 文本文件与行范围读取
+    apply-patch.ts     # 唯一精确替换与排他创建
+    run-command.ts     # shell:false 的受控子进程执行
   config/
     config.ts          # 配置对象与允许的环境变量名称
   ui/
@@ -69,7 +77,7 @@ evals/
   scenarios/           # 可复现的端到端行为场景
 ```
 
-上表包含未来文件位置；`app.tsx` 尚未创建。只有当前里程碑确实需要的文件会进入仓库。
+上表仅有 `app.tsx` 是未来文件位置，尚未创建。只有当前里程碑确实需要的文件会进入仓库。
 
 ## 5. 依赖方向
 
@@ -178,6 +186,17 @@ interface Tool<Input> {
 - 命令执行默认使用 executable 与 argv，不通过 shell 拼接字符串；
 - 可恢复的领域错误返回结构化 ToolResult，编程错误保持异常并由 Agent 归类。
 
+M3 的具体边界如下：
+
+- `list_directory`、`search_files`、`read_file`、`apply_patch` 与 `run_command` 由 `createCodingToolRegistry()` 显式注册，不提供同义工具或动态发现；
+- 所有模型路径先按 workspace 相对路径校验，再通过 `realpath`/canonical 路径确认实际目标仍在 root 内；`.git`、`.easycode` 与真实 `.env*` 均为保留路径；
+- 目录遍历按稳定顺序执行，不跟随 symlink/junction，并限制深度、条目、扫描文件、匹配数、单文件大小与返回 bytes；直接 symlink 不作为普通文件或目录读取，写入路径中的内部 symlink parent 只有在 canonical parent 仍位于 workspace 时才允许；
+- `apply_patch` 只支持唯一精确替换和排他创建，不支持删除或重命名；更新写入同目录临时文件并在提交前复查原内容，创建通过排他目标语义拒绝覆盖；
+- `run_command` 只接受结构化 `executable`、`args`、workspace 相对 `cwd` 与有界 `timeoutMs`，使用 `shell:false`，过滤敏感环境变量，并拒绝 shell、inline eval、危险 Git、发布、部署与系统级命令；
+- Windows 的 `npm.cmd`/`.bat` shim 不能在不经过 shell 的前提下可靠启动，因此 M3 明确拒绝这类入口。可直接执行真实 binary，或使用 Node.js 执行 workspace 内已有脚本；后续若支持 package scripts，必须设计不扩大 shell 注入面的独立适配。
+
+这些控制降低误操作和注入风险，但不是 OS 级沙箱：允许的进程仍继承当前用户权限，终止只保证直接子进程收到停止请求，M3 不承诺隔离其自行创建的所有后代进程。canonical 检查和 patch 提交前复查也不能完全消除具有同一宿主权限的恶意本地进程制造的 TOCTOU 竞态。
+
 ### 6.4 AgentEvent
 
 Agent 对 UI 发布稳定的产品级事件：
@@ -254,8 +273,8 @@ Provider、Tool 和 UI 不拥有 Session。M1 不创建会话文件；持久化�
 测试分三层：
 
 1. **单元测试**：使用 scripted `FakeProvider`、fake Tool、注入的 fake `fetch` 与本地 SSE fixture 覆盖状态转换和协议边界，不访问网络和真实用户文件。
-2. **集成测试**：离线组合 Agent、具体 Provider 和 fake Tool，验证跨 chunk ToolCall 最终进入工具执行并回传下一轮；M3 再加入临时 workspace 中的真实工具测试。
+2. **集成测试**：离线组合 Agent、具体 Provider 和 Tool；M2 验证跨 chunk ToolCall，M3 在临时 workspace 中用真实工具验证“搜索/读取—修改—命令验证—最终回答”及失败 ToolResult 回传。
 3. **可选 smoke**：只有设置 `EASYCODE_SMOKE=1` 才读取三个 Provider 环境变量并请求真实服务，普通 `npm test` 与 CI 默认跳过。
 4. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；集成测试断言具体 Provider 与 Agent 之间没有协议缝隙。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；M3 以临时 workspace 断言路径边界、资源上限、原子修改、命令控制和 Agent 闭环。默认测试不访问网络、用户仓库或真实 API。

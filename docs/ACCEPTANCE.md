@@ -2,7 +2,7 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1、M2 已根据自动化测试和提交前质量门更新状态，M3 之后的行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M3 已根据自动化测试和提交前质量门更新状态，M4 之后的行为不会提前标记为完成。
 
 验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、配置、时间和原始输出。不得以截图或口头描述替代可重复检查。
 
@@ -51,12 +51,14 @@ M2 的直接证据位于 `tests/unit/config.test.ts`、`tests/unit/openai-compat
 
 | 状态 | 验收项 |
 | --- | --- |
-| [ ] | 所有工具在执行前完成运行时参数校验；失败输入不会调用副作用代码 |
-| [ ] | 文件读取、搜索和修改被限制在显式 workspace root，路径穿越被拒绝 |
-| [ ] | 文件修改使用明确 patch 或同等可审查机制，不静默覆盖未知内容 |
-| [ ] | 命令使用 executable + argv 执行，具有 cwd、timeout、abort 和输出上限 |
-| [ ] | 命令非零退出、超时与截断作为结构化结果或错误呈现 |
-| [ ] | 集成测试只操作临时 workspace，不读取或修改用户真实项目 |
+| [x] 已验证 | 所有工具在执行前完成运行时参数校验；失败输入不会调用副作用代码 |
+| [x] 已验证 | 文件读取、搜索和修改被限制在显式 workspace root，路径穿越及 symlink/junction 越界被拒绝 |
+| [x] 已验证 | 文件修改使用唯一精确替换或排他创建，不静默覆盖未知内容 |
+| [x] 已验证 | 命令使用 executable + argv 与 `shell:false` 执行，具有 cwd、timeout、abort 和输出上限 |
+| [x] 已验证 | 命令非零退出、超时与截断作为结构化结果或错误呈现 |
+| [x] 已验证 | 集成测试只操作临时 workspace，不读取或修改用户真实项目 |
+
+M3 的直接证据位于 `tests/unit/tool-registry.test.ts`、`tests/unit/workspace-boundary.test.ts`、`tests/unit/file-tools.test.ts`、`tests/unit/apply-patch.test.ts`、`tests/unit/run-command.test.ts` 与 `tests/integration/coding-tools-agent.test.ts`。默认测试不请求网络；集成测试使用 Fake Provider 和临时 workspace，分别覆盖成功闭环、patch 冲突和命令非零退出的 ToolResult 回传。
 
 ## 6. M4 TUI 验收
 
