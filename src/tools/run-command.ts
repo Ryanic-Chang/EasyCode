@@ -268,10 +268,15 @@ export class RunCommandTool implements Tool<RunCommandInput> {
   readonly inputSchema = {
     type: "object",
     additionalProperties: false,
-    required: ["executable", "args"],
+    required: ["executable"],
     properties: {
       executable: { type: "string", minLength: 1, maxLength: 1024 },
-      args: { type: "array", maxItems: MAX_ARGUMENTS, items: { type: "string", maxLength: MAX_ARGUMENT_BYTES } },
+      args: {
+        type: "array",
+        description: "参数数组；无参数时可省略",
+        maxItems: MAX_ARGUMENTS,
+        items: { type: "string", maxLength: MAX_ARGUMENT_BYTES },
+      },
       cwd: { type: "string", description: "workspace 相对目录；默认为 ." },
       timeoutMs: { type: "integer", minimum: MIN_TIMEOUT_MS, maximum: MAX_TIMEOUT_MS },
     },
@@ -281,10 +286,11 @@ export class RunCommandTool implements Tool<RunCommandInput> {
     const record = requireRecord(input);
     rejectUnknownKeys(record, ["executable", "args", "cwd", "timeoutMs"]);
     const executable = requireString(record, "executable", 1024);
-    if (!Array.isArray(record.args) || record.args.length > MAX_ARGUMENTS) {
+    const rawArgs = record.args ?? [];
+    if (!Array.isArray(rawArgs) || rawArgs.length > MAX_ARGUMENTS) {
       throw new ToolInputError(`args 必须是至多 ${MAX_ARGUMENTS} 项的字符串数组`);
     }
-    const args = record.args.map((argument) => {
+    const args = rawArgs.map((argument) => {
       if (
         typeof argument !== "string" ||
         Buffer.byteLength(argument, "utf8") > MAX_ARGUMENT_BYTES ||

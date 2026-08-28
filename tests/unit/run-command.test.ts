@@ -192,6 +192,15 @@ describe("run_command", () => {
 });
 
 describe("run_command parse 安全门", () => {
+  it("将省略的 args 规范化为空数组", () => {
+    expect(new RunCommandTool().parse({ executable: "fixture.exe" })).toEqual({
+      executable: "fixture.exe",
+      args: [],
+      cwd: ".",
+      timeoutMs: 30_000,
+    });
+  });
+
   it.each([
     ["shell", { executable: "sh", args: ["-c", "echo bad"] }],
     ["Windows shell", { executable: "cmd.exe", args: ["/c", "echo bad"] }],
