@@ -46,6 +46,27 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
           第 {item.step} 轮
         </Text>
       );
+    case "retry":
+      return (
+        <Text wrap="hard" {...textColor(colorEnabled, "yellow")}>
+          [重试] {item.reason} · 第 {item.attempt}/{item.maxRetries} 次 · {item.delayMs} ms
+        </Text>
+      );
+    case "approval": {
+      const label = item.status === "pending" ? "确认" : item.status === "approved" ? "已允许" : "已拒绝";
+      const color = item.status === "pending" ? "yellow" : item.status === "approved" ? "green" : "red";
+      return (
+        <Box flexDirection="column">
+          <Text wrap="hard" {...textColor(colorEnabled, color)}>
+            [{label}] {item.toolName}
+          </Text>
+          <Text wrap="hard">{item.actionSummary}</Text>
+          {item.status === "pending" ? (
+            <Text dimColor>一次性授权：按 y 允许；按 n 或 Enter 拒绝（默认拒绝）</Text>
+          ) : null}
+        </Box>
+      );
+    }
     case "assistant":
       return (
         <Box flexDirection="column">
@@ -93,8 +114,15 @@ function cursorText(input: InputState): { readonly before: string; readonly afte
 
 export function EasyCodeView({ state, input, model, workspace, colorEnabled, columns }: EasyCodeViewProps) {
   const draft = cursorText(input);
-  const phaseText = state.phase === "running" ? "正在运行" : state.phase === "cancelling" ? "正在取消" : "等待输入";
-  const phaseColor = state.phase === "idle" ? "green" : state.phase === "running" ? "yellow" : "red";
+  const phaseText =
+    state.phase === "running"
+      ? "正在运行"
+      : state.phase === "awaiting_approval"
+        ? "等待确认"
+        : state.phase === "cancelling"
+          ? "正在取消"
+          : "等待输入";
+  const phaseColor = state.phase === "idle" ? "green" : state.phase === "cancelling" ? "red" : "yellow";
 
   return (
     <Box flexDirection="column" width={Math.max(20, columns)}>
@@ -117,6 +145,8 @@ export function EasyCodeView({ state, input, model, workspace, colorEnabled, col
             {colorEnabled ? <Text inverse> </Text> : <Text>│</Text>}
             {draft.after}
           </Text>
+        ) : state.phase === "awaiting_approval" ? (
+          <Text dimColor>› y 允许 / n 或 Enter 拒绝（默认拒绝）</Text>
         ) : (
           <Text dimColor>{state.phase === "cancelling" ? "› 正在等待当前任务清理" : "› 输入已暂停"}</Text>
         )}
@@ -143,6 +173,7 @@ export function EasyCodeApp({
   const inputRef = useRef(input);
   const nextRunIdRef = useRef(1);
   const activeUiRunIdRef = useRef<number | undefined>(undefined);
+  const activeApprovalIdRef = useRef<string | undefined>(undefined);
   const exitAfterCancellationRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -150,12 +181,14 @@ export function EasyCodeApp({
   inputRef.current = input;
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       controllerRef.current?.abort();
       controllerRef.current = undefined;
+      runner.dispose();
     };
-  }, []);
+  }, [runner]);
 
   const requestExit = () => {
     onExitRequested?.();
@@ -192,6 +225,16 @@ export function EasyCodeApp({
           if (!mountedRef.current) {
             return;
           }
+          if (sessionEvent.event.type === "approval_required") {
+            activeApprovalIdRef.current = sessionEvent.event.request.approvalId;
+            phaseRef.current = "awaiting_approval";
+          } else if (sessionEvent.event.type === "approval_resolved") {
+            activeApprovalIdRef.current = undefined;
+            phaseRef.current = "running";
+          } else if (sessionEvent.event.type === "complete") {
+            activeApprovalIdRef.current = undefined;
+            phaseRef.current = "idle";
+          }
           dispatch({ type: "agent_event", runId: uiRunId, event: sessionEvent.event });
         }
       } catch {
@@ -226,12 +269,26 @@ export function EasyCodeApp({
     if (key.ctrl && value === "c") {
       if (phaseRef.current === "idle") {
         requestExit();
-      } else if (phaseRef.current === "running") {
+      } else if (phaseRef.current === "running" || phaseRef.current === "awaiting_approval") {
         phaseRef.current = "cancelling";
         dispatch({ type: "cancelling", runId: activeUiRunIdRef.current ?? -1 });
         controllerRef.current?.abort();
       } else {
         exitAfterCancellationRef.current = true;
+      }
+      return;
+    }
+    if (phaseRef.current === "awaiting_approval") {
+      const lower = value.toLowerCase();
+      if (key.return || lower === "n" || lower === "y") {
+        const approvalId = activeApprovalIdRef.current;
+        if (
+          approvalId !== undefined &&
+          runner.resolveApproval({ approvalId, approved: !key.return && lower === "y" })
+        ) {
+          activeApprovalIdRef.current = undefined;
+          phaseRef.current = "running";
+        }
       }
       return;
     }

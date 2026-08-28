@@ -3,11 +3,13 @@
 import * as path from "node:path";
 import { render } from "ink";
 import { createElement } from "react";
-
+import { ApprovalBroker } from "./agent/approval.js";
 import { AgentLoop } from "./agent/loop.js";
 import { AgentSession } from "./agent/session.js";
 import { ConfigError, type EasyCodeConfig, loadEasyCodeConfig } from "./config/config.js";
 import { OpenAICompatibleProvider } from "./llm/openai-compatible/provider.js";
+import { SILENT_LOGGER } from "./security/logger.js";
+import { Redactor } from "./security/redaction.js";
 import { createCodingToolRegistry } from "./tools/coding-tools.js";
 import { EasyCodeApp } from "./ui/app.js";
 
@@ -28,10 +30,25 @@ async function main(): Promise<void> {
   }
 
   const cwd = process.cwd();
-  const provider = new OpenAICompatibleProvider(config);
+  const redactor = new Redactor({ secrets: [config.apiKey] });
+  const approvals = new ApprovalBroker();
+  const provider = new OpenAICompatibleProvider(config, {
+    retry: { maxRetries: config.maxRetries, baseDelayMs: config.retryBaseDelayMs },
+    requestTimeoutMs: config.requestTimeoutMs,
+    logger: SILENT_LOGGER,
+    redactor,
+  });
   const tools = createCodingToolRegistry();
-  const agent = new AgentLoop({ provider, tools, model: config.model, cwd, maxSteps: MAX_STEPS });
-  const session = new AgentSession(agent);
+  const agent = new AgentLoop({
+    provider,
+    tools,
+    model: config.model,
+    cwd,
+    maxSteps: MAX_STEPS,
+    approvalGate: approvals,
+    redactor,
+  });
+  const session = new AgentSession(agent, approvals);
   const workspace = path.basename(cwd) || "workspace";
   const instance = render(
     createElement(EasyCodeApp, {

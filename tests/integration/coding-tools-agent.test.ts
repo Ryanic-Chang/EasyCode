@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-
+import type { ApprovalGate } from "../../src/agent/approval.js";
 import { AgentLoop } from "../../src/agent/loop.js";
 import { createCodingToolRegistry } from "../../src/tools/coding-tools.js";
 import { collectAgentRun } from "../agent-run.js";
@@ -8,6 +8,9 @@ import { FakeProvider } from "../fake-provider.js";
 import { createTemporaryWorkspace, type TemporaryWorkspace } from "../temp-workspace.js";
 
 const workspaces: TemporaryWorkspace[] = [];
+const approveCommands: ApprovalGate = {
+  request: async (request) => ({ approvalId: request.approvalId, approved: true }),
+};
 
 async function workspace(): Promise<TemporaryWorkspace> {
   const created = await createTemporaryWorkspace();
@@ -78,6 +81,7 @@ describe("M3 Agent 离线闭环", () => {
       model: "fake-model",
       cwd: fixture.root,
       maxSteps: 4,
+      approvalGate: approveCommands,
     });
 
     const run = await collectAgentRun(agent.run([{ role: "user", content: "将 TODO 改为 DONE 并验证" }]));
@@ -113,6 +117,8 @@ describe("M3 Agent 离线闭环", () => {
       "tool_start",
       "tool_end",
       "turn_start",
+      "approval_required",
+      "approval_resolved",
       "tool_start",
       "tool_end",
       "turn_start",
@@ -152,6 +158,7 @@ describe("M3 Agent 离线闭环", () => {
       model: "fake-model",
       cwd: fixture.root,
       maxSteps: 2,
+      approvalGate: approveCommands,
     });
 
     const run = await collectAgentRun(agent.run([{ role: "user", content: "尝试修改" }]));
@@ -191,6 +198,7 @@ describe("M3 Agent 离线闭环", () => {
       model: "fake-model",
       cwd: fixture.root,
       maxSteps: 2,
+      approvalGate: approveCommands,
     });
 
     const run = await collectAgentRun(agent.run([{ role: "user", content: "运行验证" }]));

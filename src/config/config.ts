@@ -1,4 +1,14 @@
-export const CONFIG_ENV_NAMES = ["EASYCODE_API_KEY", "EASYCODE_BASE_URL", "EASYCODE_MODEL"] as const;
+export const DEFAULT_MAX_RETRIES = 2;
+export const DEFAULT_RETRY_BASE_DELAY_MS = 500;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const CONFIG_ENV_NAMES = [
+  "EASYCODE_API_KEY",
+  "EASYCODE_BASE_URL",
+  "EASYCODE_MODEL",
+  "EASYCODE_MAX_RETRIES",
+  "EASYCODE_RETRY_BASE_DELAY_MS",
+  "EASYCODE_REQUEST_TIMEOUT_MS",
+] as const;
 
 export type EasyCodeEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -6,10 +16,13 @@ export interface EasyCodeConfig {
   readonly apiKey: string;
   readonly baseUrl: URL;
   readonly model: string;
+  readonly maxRetries: number;
+  readonly retryBaseDelayMs: number;
+  readonly requestTimeoutMs: number;
 }
 
 export class ConfigError extends Error {
-  readonly code: "missing_value" | "invalid_url" | "unsupported_scheme";
+  readonly code: "missing_value" | "invalid_url" | "unsupported_scheme" | "invalid_integer";
 
   constructor(code: ConfigError["code"], message: string) {
     super(message);
@@ -43,10 +56,46 @@ function parseBaseUrl(value: string): URL {
   return url;
 }
 
+function optionalInteger(
+  environment: EasyCodeEnvironment,
+  name: (typeof CONFIG_ENV_NAMES)[number],
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = environment[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (!/^(0|[1-9]\d*)$/.test(raw)) {
+    throw new ConfigError("invalid_integer", `${name} 必须是 ${minimum}–${maximum} 的十进制整数`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new ConfigError("invalid_integer", `${name} 必须是 ${minimum}–${maximum} 的十进制整数`);
+  }
+  return value;
+}
+
 export function loadEasyCodeConfig(environment: EasyCodeEnvironment): EasyCodeConfig {
   const apiKey = requireValue(environment, "EASYCODE_API_KEY");
   const baseUrl = parseBaseUrl(requireValue(environment, "EASYCODE_BASE_URL"));
   const model = requireValue(environment, "EASYCODE_MODEL");
+  const maxRetries = optionalInteger(environment, "EASYCODE_MAX_RETRIES", DEFAULT_MAX_RETRIES, 0, 5);
+  const retryBaseDelayMs = optionalInteger(
+    environment,
+    "EASYCODE_RETRY_BASE_DELAY_MS",
+    DEFAULT_RETRY_BASE_DELAY_MS,
+    50,
+    5_000,
+  );
+  const requestTimeoutMs = optionalInteger(
+    environment,
+    "EASYCODE_REQUEST_TIMEOUT_MS",
+    DEFAULT_REQUEST_TIMEOUT_MS,
+    1_000,
+    120_000,
+  );
 
-  return { apiKey, baseUrl, model };
+  return { apiKey, baseUrl, model, maxRetries, retryBaseDelayMs, requestTimeoutMs };
 }

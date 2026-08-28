@@ -1,4 +1,4 @@
-import type { Tool, ToolContext, ToolExecutionResult, ToolInputSchema } from "./tool.js";
+import type { ApprovalRequirement, Tool, ToolContext, ToolExecutionResult, ToolInputSchema } from "./tool.js";
 
 export interface ToolDescriptor {
   readonly name: string;
@@ -8,6 +8,7 @@ export interface ToolDescriptor {
 
 export interface PreparedTool {
   readonly descriptor: ToolDescriptor;
+  readonly approvalRequirement?: ApprovalRequirement;
   execute(context: ToolContext): Promise<ToolExecutionResult>;
 }
 
@@ -27,9 +28,11 @@ function wrapTool<Input>(tool: Tool<Input>): RegisteredTool {
     descriptor,
     prepare(input: unknown): PreparedTool {
       const parsedInput = tool.parse(input);
+      const approvalRequirement = tool.approval?.(parsedInput);
 
       return {
         descriptor,
+        ...(approvalRequirement === undefined ? {} : { approvalRequirement }),
         execute(context: ToolContext): Promise<ToolExecutionResult> {
           return tool.execute(parsedInput, context);
         },

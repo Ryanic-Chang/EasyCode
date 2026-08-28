@@ -2,7 +2,7 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M4 已根据自动化测试和提交前质量门更新状态，M5 之后的行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M5 已根据自动化测试和提交前质量门更新状态，M6 之后的行为不会提前标记为完成。
 
 验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、配置、时间和原始输出。不得以截图或口头描述替代可重复检查。
 
@@ -72,12 +72,23 @@ M3 的直接证据位于 `tests/unit/tool-registry.test.ts`、`tests/unit/worksp
 
 M4 的直接证据位于 `tests/unit/agent-session.test.ts`、`tests/unit/ui-input.test.ts`、`tests/unit/ui-format.test.ts`、`tests/unit/ui-model.test.ts`、`tests/unit/ui-app.test.tsx` 与 `tests/integration/tui-agent.test.tsx`。组件测试通过内存 stdin/stdout 驱动 Ink；集成测试组合 Fake Provider、真实 Agent Loop、Agent Session、fake Tool 与 Ink App，不访问网络、真实 API 或用户 workspace。
 
-## 7. M5–M7 交付验收
+## 7. M5 安全性与可恢复性验收
+
+| ID | 状态 | 验收项 | 证据入口 |
+| --- | --- | --- | --- |
+| M5-01 | [x] 已验证 | Provider、ToolCall 与内部错误使用稳定分类和中文可操作提示，未知内容不透传 | `agent-loop.test.ts`、`openai-compatible-provider.test.ts` |
+| M5-02 | [x] 已验证 | network、timeout、408/409/429/5xx 有界重试；指数退避、jitter、Retry-After、abort 与 timeout 可确定性验证 | `retry-policy.test.ts`、`provider-retry.test.ts` |
+| M5-03 | [x] 已验证 | 成功 SSE stream 发布 `start` 后的断流或协议错误不重放，不重复 step、ToolCall 或工具副作用 | `provider-retry.test.ts`、`m5-recovery.test.tsx` 场景 1/5 |
+| M5-04 | [x] 已验证 | ToolResult、metadata、stdout/stderr、日志与 TUI 摘要经过统一脱敏、JSON-safe 收敛和 UTF-8 byte 上限 | `redaction.test.ts`、`m5-recovery.test.tsx` 场景 6 |
+| M5-05 | [x] 已验证 | `run_command` 每次调用均需精确一次性确认，其他四工具无需确认，硬拒绝发生在确认前 | `approval.test.ts`、`ui-app.test.tsx`、`m5-recovery.test.tsx` 场景 2/3 |
+| M5-06 | [x] 已验证 | 拒绝、abort、retry exhaustion、reader/timer/listener、broker dispose、TUI unmount 与 Session 回滚不产生悬空状态或重复执行 | `approval.test.ts`、`provider-retry.test.ts`、`m5-recovery.test.tsx` 场景 3/4/5 |
+
+上述证据均为 fake transport、Fake Provider、fake Tool、内存 Ink 或临时 workspace 测试；普通 `npm test` 不访问网络、真实 API、用户 workspace 或已公开密钥。
+
+## 8. M6–M7 交付验收
 
 | 状态 | 验收项 |
 | --- | --- |
-| [ ] | 已知错误路径具有中文、脱敏、可操作的提示，自动重试有上限与退避 |
-| [ ] | 删除、发布、部署、推送和权限扩大等高风险动作需要明确确认 |
 | [ ] | 场景评测记录 revision、环境、依赖、模型、配置、命令和原始结果 |
 | [ ] | Windows、macOS、Linux 的最低支持范围经过实际验证或明确标注限制 |
 | [ ] | 从干净环境执行 `npm ci` 和 `npm run check` 可复现通过结果 |

@@ -1,10 +1,17 @@
-import type { Tool, ToolContext, ToolExecutionResult, ToolInputSchema } from "../src/tools/tool.js";
+import type {
+  ApprovalRequirement,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+  ToolInputSchema,
+} from "../src/tools/tool.js";
 
 export interface FakeToolOptions<Input> {
   readonly name: string;
   readonly description?: string;
   readonly inputSchema?: ToolInputSchema;
   parse(input: unknown): Input;
+  approval?(input: Input): ApprovalRequirement | undefined;
   execute(input: Input, context: ToolContext): ToolExecutionResult | Promise<ToolExecutionResult>;
 }
 
@@ -36,5 +43,9 @@ export class FakeTool<Input> implements Tool<Input> {
   execute(input: Input, context: ToolContext): Promise<ToolExecutionResult> {
     this.executions.push({ input, context });
     return Promise.resolve(this.#options.execute(input, context));
+  }
+
+  approval(input: Input): ApprovalRequirement | undefined {
+    return this.#options.approval?.(input);
   }
 }

@@ -65,7 +65,7 @@ describe("AgentSession", () => {
         ? [
             {
               type: "error" as const,
-              error: { code: "remote", message: "sensitive", retryable: false },
+              error: { code: "provider_server" as const, message: "sensitive", retryable: false },
             },
           ]
         : [{ type: "finish" as const, reason: "length" as const }];

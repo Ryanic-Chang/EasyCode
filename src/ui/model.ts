@@ -1,16 +1,36 @@
 import type { AgentError, AgentEvent, AgentTerminationReason } from "../agent/events.js";
-import { summarizeToolCall, summarizeToolResult } from "./format.js";
+import { retryReasonText, summarizeToolCall, summarizeToolResult } from "./format.js";
 import { truncateGraphemes } from "./input.js";
 
 export const MAX_TRANSCRIPT_ITEMS = 100;
 export const MAX_ASSISTANT_GRAPHEMES = 12_000;
 const ASSISTANT_TRUNCATION_MARKER = "…[已截断]";
 
-export type UiPhase = "idle" | "running" | "cancelling";
+export type UiPhase = "idle" | "running" | "awaiting_approval" | "cancelling";
 
 export type TranscriptItem =
   | { readonly id: string; readonly type: "user"; readonly task: string }
   | { readonly id: string; readonly type: "turn"; readonly step: number }
+  | {
+      readonly id: string;
+      readonly type: "retry";
+      readonly step: number;
+      readonly attempt: number;
+      readonly maxRetries: number;
+      readonly delayMs: number;
+      readonly reason: string;
+    }
+  | {
+      readonly id: string;
+      readonly type: "approval";
+      readonly step: number;
+      readonly approvalId: string;
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly riskCategory: string;
+      readonly actionSummary: string;
+      readonly status: "pending" | "approved" | "denied";
+    }
   | {
       readonly id: string;
       readonly type: "assistant";
@@ -106,7 +126,7 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
     return state;
   }
   if (action.type === "cancelling") {
-    return state.phase === "running" ? { ...state, phase: "cancelling" } : state;
+    return state.phase === "running" || state.phase === "awaiting_approval" ? { ...state, phase: "cancelling" } : state;
   }
 
   const event = action.event;
@@ -124,6 +144,51 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
       return {
         ...state,
         transcript: appendAssistantDelta(state.transcript, action.runId, event.step, event.delta),
+      };
+    case "provider_retry":
+      return {
+        ...state,
+        transcript: bounded([
+          ...state.transcript,
+          {
+            id: `run-${action.runId}-retry-${event.step}-${event.attempt}`,
+            type: "retry",
+            step: event.step,
+            attempt: event.attempt,
+            maxRetries: event.maxRetries,
+            delayMs: event.delayMs,
+            reason: retryReasonText(event.error.code),
+          },
+        ]),
+      };
+    case "approval_required":
+      return {
+        ...state,
+        phase: "awaiting_approval",
+        transcript: bounded([
+          ...finalizeAssistants(state.transcript),
+          {
+            id: `run-${action.runId}-approval-${event.request.approvalId}`,
+            type: "approval",
+            step: event.step,
+            approvalId: event.request.approvalId,
+            toolCallId: event.request.toolCallId,
+            toolName: event.request.toolName,
+            riskCategory: event.request.riskCategory,
+            actionSummary: event.request.actionSummary,
+            status: "pending",
+          },
+        ]),
+      };
+    case "approval_resolved":
+      return {
+        ...state,
+        phase: "running",
+        transcript: state.transcript.map((item) =>
+          item.type === "approval" && item.approvalId === event.approvalId
+            ? { ...item, status: event.approved ? "approved" : "denied" }
+            : item,
+        ),
       };
     case "tool_start":
       return {

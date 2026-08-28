@@ -104,7 +104,7 @@
 - **决策**：`OpenAICompatibleProvider` 使用 Node.js 22 内建 `fetch`；SSE 只实现 Chat Completions 所需的 UTF-8、行、`data` 与事件边界；构造器允许注入 `FetchTransport` 供离线测试使用。
 - **理由**：M2 所需协议面很小，标准能力已经支持流和取消。显式解析器便于逐条验证跨字节、CRLF、EOF 与 reader 清理，不需要引入 SDK 或 SSE 生产依赖；注入 transport 让普通测试不接触网络。
 - **备选方案**：厂商 SDK 或通用 SSE 库能减少部分代码，但会增加生产依赖与隐式行为；全量实现 EventSource 的重连、event/id/retry 语义超出单次 POST 响应需求。
-- **后果**：需要自行维护已声明子集及 fixture；协议扩展必须先增加失败用例。Provider 不自动重连或重试。
+- **后果**：需要自行维护已声明子集及 fixture；协议扩展必须先增加失败用例。M2 不自动重连或重试；M5 的受控 transport 重试由 ADR-018 覆盖，SSE 本身仍不自动重连。
 
 ## ADR-014：严格限定 Chat Completions 子集并显式保留 ToolResult 语义
 
@@ -136,4 +136,25 @@
 - **决策**：UI 将 `AgentEvent` 投影到纯 reducer/view-model，React 只负责输入和渲染；工具参数与结果经按工具白名单摘要。Ink 的 `exitOnCtrlC` 关闭：运行中第一次 Ctrl+C abort UI 创建并传给 Session 的 controller，第二次仅登记清理后退出；空闲时直接退出。
 - **理由**：纯投影可以确定性验证 delta 顺序、工具关联、失败状态、迟到事件与 transcript 上限。显式取消生命周期确保同一 signal 继续进入 Provider/Tool，不会绕过 Agent 边界或在清理完成前伪称退出。
 - **备选方案**：UI 直接读取 Provider chunk 或 Agent history 会破坏模块边界；Ink 默认 Ctrl+C 会立即 unmount；用颜色或动画作为唯一状态会损害无颜色与窄终端可读性。
-- **后果**：界面固定单列、纯文本、无 Markdown 渲染，以 `[运行]`、`[完成]`、`[失败]` 表达语义；transcript、assistant 文本和摘要均有上限。M4 不实现完整滚动容器、主题、确认门或完整进程树强制终止。
+- **后果**：界面固定单列、纯文本、无 Markdown 渲染，以 `[运行]`、`[完成]`、`[失败]` 表达语义；transcript、assistant 文本和摘要均有上限。M4 不实现完整滚动容器、主题或完整进程树强制终止；M5 在同一事件边界内加入确认状态。
+
+## ADR-018：Provider 只在成功流开始前有界重试
+
+- **状态**：已接受
+- **决策**：OpenAI-compatible Provider 对 network、每 attempt timeout、HTTP 408/409/429/5xx 在发布 `start` 前执行最多 2 次默认重试，采用指数退避、±20% jitter、10000 ms 最大 delay，并将有界 `Retry-After` 纳入计算。成功 SSE stream 开始后不透明重放。
+- **理由**：建立连接前的瞬时故障通常可恢复；流开始后重放可能重复文本、ToolCall、计费和后续副作用，无法安全合并。
+- **后果**：transport retry 不增加 Agent step，也不会重放本地工具；同一逻辑请求可能在服务端产生重复计费。client request ID 只用于诊断，不声明幂等。
+
+## ADR-019：所有不可信输出经过同一 Redactor 与 Agent 结果边界
+
+- **状态**：已接受
+- **决策**：显式 secret、常见 credential 形式、URL、敏感 metadata key 与控制字符统一由 `src/security/redaction.ts` 处理；ToolExecutionResult 在 Agent 边界再次实施 UTF-8 byte、深度、字段、数组和 JSON-safe 限制。Provider logger 只接受窄结构字段，默认 silent。
+- **理由**：各模块自行维护正则会漂移；自定义或未来工具不能因自身声称已截断而获得信任。getter、循环引用和异常 logger 也不得成为泄露或业务失败来源。
+- **后果**：脱敏后的 metadata 明确带截断标记，不等同原始完整数据；M5 不记录请求/响应正文，不提供持久日志或 trace 后端。
+
+## ADR-020：高风险授权绑定一个精确 ToolCall 且默认拒绝
+
+- **状态**：已接受
+- **决策**：Tool 在 `parse` 后声明 `ApprovalRequirement`，Agent 为每次调用生成独立 opaque ID。只有匹配该 ID 的一次性允许决定后才能发布 `tool_start`。`run_command` 总是需要确认；read/list/search/patch 不需要。拒绝作为结构化 ToolResult 回传模型，abort/dispose 清除 pending。
+- **理由**：会话级永久允许会扩大一次意图的权限；在 parse 前询问会让确认机制绕过 M3 硬拒绝。默认拒绝能让 Enter、取消、unmount 和未知 ID 保持安全。
+- **后果**：同轮多个高风险调用按顺序分别确认；确认不是 OS sandbox，也不解锁 shell、危险 Git、发布、部署或 workspace 外访问。

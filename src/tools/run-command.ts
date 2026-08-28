@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 
+import { DEFAULT_REDACTOR } from "../security/redaction.js";
 import { domainFailure, ToolDomainError, ToolInputError } from "./errors.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "./tool.js";
 import { optionalInteger, optionalString, rejectUnknownKeys, requireRecord, requireString } from "./validation.js";
@@ -299,6 +300,19 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       args,
       cwd: normalizeWorkspacePath(optionalString(record, "cwd", 1024) ?? ".", true),
       timeoutMs: optionalInteger(record, "timeoutMs", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
+    };
+  }
+
+  approval(input: RunCommandInput) {
+    const executable = DEFAULT_REDACTOR.redactText(input.executable, 512);
+    const args = input.args
+      .slice(0, 12)
+      .map((argument) => DEFAULT_REDACTOR.redactText(argument, 256))
+      .join(" ");
+    const suffix = input.args.length > 12 ? " …[参数已截断]" : "";
+    return {
+      riskCategory: "command_execution",
+      actionSummary: `executable ${executable} · args ${args}${suffix} · cwd ${DEFAULT_REDACTOR.redactText(input.cwd, 512)} · timeout ${input.timeoutMs} ms`,
     };
   }
 

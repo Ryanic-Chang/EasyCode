@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M4 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider、受控 workspace 内的最小代码工具集，以及中文 Ink TUI。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M5 已实现可由本地 fixture 驱动的 Agent Loop、OpenAI-compatible Provider、受控 workspace 内的最小代码工具集、中文 Ink TUI，以及有界恢复、统一脱敏和逐调用确认边界。
 
 ## 2. 架构目标
 
@@ -29,10 +29,15 @@ flowchart LR
     Tools -->|ToolResult| Agent
     Agent -->|AgentEvent stream| UI
     Config[config\n读取与校验] --> Main[main\ncomposition root]
+    Security[security\n统一脱敏与安全边界]
     Main -.注入.-> UI
     Main -.注入.-> Agent
     Main -.注入.-> LLM
     Main -.注入.-> Tools
+    UI --> Security
+    Agent --> Security
+    LLM --> Security
+    Tools --> Security
 ```
 
 关键原则是“依赖由外层装配，事件由核心向外发布”。UI 不知道具体 Provider 或工具实现；Provider 不知道 Agent 是否会执行工具；工具也不知道结果将如何展示。
@@ -43,12 +48,14 @@ flowchart LR
 src/
   main.ts              # composition root；只装配依赖和启动应用
   agent/
+    approval.ts        # 一次性确认协议、默认拒绝与 UI broker
     messages.ts        # Message、ToolCall、ToolResult 等核心会话类型
     events.ts          # UI 可消费的 AgentEvent 与终止原因
     loop.ts            # Agent Loop、上下文推进与终止判断
     session.ts         # 进程内会话、运行互斥与历史提交/回滚
   llm/
     provider.ts        # Provider、ProviderRequest、ProviderEvent 契约
+    retry.ts           # 指数退避、jitter、Retry-After 与可取消等待
     openai-compatible/
       provider.ts      # fetch transport、HTTP 分类与 ProviderEvent 流
       wire.ts          # Chat Completions 请求/响应映射
@@ -72,6 +79,10 @@ src/
     input.ts           # Unicode 字素级输入状态机
     model.ts           # AgentEvent 到终端视图的纯状态投影
     format.ts          # 工具、结果、错误与终止原因的安全摘要
+  security/
+    redaction.ts       # 统一文本与 JSON-safe metadata 脱敏/总量限制
+    tool-result.ts     # Agent 边界的 ToolExecutionResult 再清理
+    logger.ts          # 不含正文的最小安全日志契约
 tests/
   unit/                # Agent、配置、wire/SSE、HTTP 错误与取消边界
   integration/         # Agent 与具体 Provider 的离线组合测试
@@ -93,6 +104,8 @@ main -> ui -> agent -> llm
                 +----> tools
 
 main -> config
+
+ui, agent, llm, tools -> security
 ```
 
 约束如下：
@@ -104,6 +117,7 @@ main -> config
 5. `tools` 只验证并执行单个能力，不发起模型请求，也不决定下一步行动。
 6. `config` 不反向依赖其他业务模块；环境变量只在应用边界读取一次。
 7. `tests` 可以依赖生产模块；生产模块不得依赖 `tests` 或 `evals`。
+8. `security` 是不反向依赖业务层的叶子模块，为 Provider、Agent、Tool 与 UI 提供同一脱敏和结果收敛策略；各层不得另建漂移的凭据正则。
 
 `ProviderEvent` 与 `AgentEvent` 有意分离：前者忠实表达模型流，后者表达产品级执行过程。这个边界避免 UI 被某家模型 API 的 chunk 格式绑死。
 
@@ -151,9 +165,11 @@ Provider 不负责：执行工具、重放整个会话、修改 workspace、终�
 - SSE 解析支持 UTF-8 跨字节、LF/CRLF、跨网络 chunk、单 chunk 多事件、注释、空行、usage-only chunk 和 `[DONE]`；
 - 只接受 `choice.index === 0`，并将 `stop`、`tool_calls`、`length` 映射为明确事件；`content_filter`、旧式 `function_call`、未知完成原因、无明确 finish 的 EOF 和 finish 后尾随数据均拒绝为协议错误；
 - HTTP 鉴权、限流、服务端、其他状态、网络与协议错误使用稳定分类；错误正文、认证 header 与底层异常文本不向 Agent 透传；
-- 调用方的同一个 `AbortSignal` 传入 `fetch` 和流 reader，取消优先保留为 abort，而不是伪装成 Provider 错误。
+- 每个 attempt 将调用方 `AbortSignal` 与内部 timeout 组合后传入 `fetch` 和流 reader；调用方取消优先保留为 abort，而不是伪装成 timeout 或 Provider 错误；timer、listener 与 reader 在结束时清理。
+- network、timeout、HTTP 408/409/429/5xx 只在成功 SSE stream 发布 `start` 之前按有界策略重试；401/403、确定性客户端错误、协议错误、用户 abort 以及流开始后的失败不重试。
+- 默认最多重试 2 次，退避基数 500 ms、最大 10000 ms、jitter ±20%，每 attempt timeout 30000 ms；配置范围见 README。一个逻辑请求的 attempts 共用安全诊断 request ID，但该 ID 不是幂等键。
 
-配置只由 `src/config/config.ts` 在应用边界读取 `EASYCODE_API_KEY`、`EASYCODE_BASE_URL` 与 `EASYCODE_MODEL`。业务模块接收已校验配置，不自行读取 `process.env`。
+配置只由 `src/config/config.ts` 在应用边界读取三个必填 Provider 变量及 `EASYCODE_MAX_RETRIES`、`EASYCODE_RETRY_BASE_DELAY_MS`、`EASYCODE_REQUEST_TIMEOUT_MS`。业务模块接收已校验配置，不自行读取 `process.env`。
 
 ToolCall 事件遵守以下协议：
 
@@ -173,13 +189,14 @@ interface Tool<Input> {
   readonly description: string;
   readonly inputSchema: ToolInputSchema;
   parse(input: unknown): Input;
+  approval?(input: Input): ApprovalRequirement | undefined;
   execute(input: Input, context: ToolContext): Promise<ToolExecutionResult>;
 }
 ```
 
 `parse` 是强制安全门。ToolRegistry 用泛型包装保留解析结果与执行输入的类型关系。Agent 会先组装并解析当前响应中的全部 ToolCall；只有整轮全部通过，才追加 assistant 历史并开始按 index 串行执行。工具不存在、参数不完整、JSON 解析失败或 schema 不匹配时，本轮所有执行函数都不会被调用。
 
-`ToolExecutionResult.isError` 明确区分成功和可恢复领域失败。可恢复失败会转换为 `ToolResult` 回传模型；工具抛出的未知异常属于内部错误，不得伪装成失败或成功 ToolResult。
+`ToolExecutionResult.isError` 明确区分成功和可恢复领域失败。可恢复失败会转换为 `ToolResult` 回传模型；工具抛出的未知异常属于内部错误，不得伪装成失败或成功 ToolResult。无论具体工具自身是否已截断，Agent 都会在结果进入消息历史、Provider 请求和事件之前再次实施统一 UTF-8 byte 上限、敏感字段过滤、递归深度/字段数限制与 JSON-safe metadata 收敛；清理失败只返回安全替代结果。
 
 工具实现还必须遵守：
 
@@ -197,6 +214,7 @@ M3 的具体边界如下：
 - 目录遍历按稳定顺序执行，不跟随 symlink/junction，并限制深度、条目、扫描文件、匹配数、单文件大小与返回 bytes；直接 symlink 不作为普通文件或目录读取，写入路径中的内部 symlink parent 只有在 canonical parent 仍位于 workspace 时才允许；
 - `apply_patch` 只支持唯一精确替换和排他创建，不支持删除或重命名；更新写入同目录临时文件并在提交前复查原内容，创建通过排他目标语义拒绝覆盖；
 - `run_command` 只接受结构化 `executable`、`args`、workspace 相对 `cwd` 与有界 `timeoutMs`，使用 `shell:false`，过滤敏感环境变量，并拒绝 shell、inline eval、危险 Git、发布、部署与系统级命令；
+- `run_command` 在 parse 和硬拒绝通过后为每次 ToolCall 声明 `ApprovalRequirement`；Agent 生成不受模型控制的 approval ID 并等待对应 decision。允许后才发布 `tool_start` 且最多执行一次；拒绝形成 `approval_denied` ToolResult 回传模型。list/search/read/patch 不需要逐次确认；
 - Windows 的 `npm.cmd`/`.bat` shim 不能在不经过 shell 的前提下可靠启动，因此 M3 明确拒绝这类入口。可直接执行真实 binary，或使用 Node.js 执行 workspace 内已有脚本；后续若支持 package scripts，必须设计不扩大 shell 注入面的独立适配。
 
 这些控制降低误操作和注入风险，但不是 OS 级沙箱：允许的进程仍继承当前用户权限，终止只保证直接子进程收到停止请求，M3 不承诺隔离其自行创建的所有后代进程。canonical 检查和 patch 提交前复查也不能完全消除具有同一宿主权限的恶意本地进程制造的 TOCTOU 竞态。
@@ -209,6 +227,9 @@ Agent 对 UI 发布稳定的产品级事件：
 | --- | --- | --- |
 | `turn_start` | 新模型轮次开始 | 展示步骤编号与忙碌状态 |
 | `assistant_delta` | 助手文本增量 | 流式追加文本 |
+| `provider_retry` | Provider 将在当前 step 内重试 | 显示安全错误分类、次数与 delay |
+| `approval_required` | 当前 ToolCall 等待一次性确认 | 进入等待确认并展示安全摘要 |
+| `approval_resolved` | 当前确认已允许或拒绝 | 固化选择并恢复运行态 |
 | `tool_start` | 已验证工具即将执行 | 展示工具名与安全摘要 |
 | `tool_end` | 工具执行完成或可恢复失败 | 展示结果摘要与状态 |
 | `error` | Provider、协议或内部错误 | 展示可操作的中文错误信息 |
@@ -228,6 +249,10 @@ stateDiagram-v2
     AssembleResponse --> Complete: finish(stop) 且无 ToolCall
     AssembleResponse --> ValidateToolCall: finish(tool_calls)
     ValidateToolCall --> ExecuteTool: 整轮 ToolCall 全部有效
+    ValidateToolCall --> AwaitApproval: 工具声明高风险
+    AwaitApproval --> ExecuteTool: 当前 ID 被明确允许
+    AwaitApproval --> AppendToolResult: 拒绝形成失败结果
+    AwaitApproval --> Aborted: AbortSignal
     ValidateToolCall --> ProtocolError: 缺失、截断或无法解析
     ExecuteTool --> AppendToolResult: 成功或可恢复工具失败
     AppendToolResult --> ModelTurn: 未达到 maxSteps
@@ -254,12 +279,12 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | 可恢复工具错误 | 文件不存在、命令退出码非零 | 是，作为失败 ToolResult | 允许继续下一轮 |
 | ToolCall 协议错误 | 参数截断、字段缺失 | 否 | `protocol_error` 终止，工具不执行 |
-| Provider 错误 | 鉴权、限流、网络失败 | 否 | 发布错误事件并以 `provider_error` 终止 |
+| Provider 错误 | 鉴权、限流、timeout、网络、服务端或协议失败 | 否 | 流开始前候选错误先按策略恢复；最终发布具体错误并以 `provider_error` 终止 |
 | 用户取消 | Ctrl+C 或调用方 abort | 否 | 取消当前 Provider/工具并以 `aborted` 终止 |
 | 步数上限 | 下一轮将超过 `maxSteps` | 否 | 不再请求模型或执行工具，以 `max_steps` 终止 |
 | 内部错误 | 工具抛出未知异常、不变量被破坏 | 否 | 脱敏后报告，以 `internal_error` 安全终止 |
 
-M2 不做自动重试。Provider 只标记 `retryable`，重试会改变请求次数、费用和时序，应在有明确退避策略、幂等性判断和测试后单独引入。
+`recoverable` 表示用户可以在修正配置或外部状态后重新尝试，不代表系统会无限自动重试。Provider 的 transport 重试不增加 Agent step，也不进入规范历史。重试可能产生重复 API 计费；因为成功完整响应前不会进入工具执行，它不会自动重放已完成的本地副作用。
 
 ## 9. Session 与状态
 
@@ -278,6 +303,7 @@ Provider、Tool 和 UI 不直接拥有或修改规范历史。M4 不创建会话
 TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 
 - `EasyCodeApp` 只依赖 `AgentRunner`，不知道 OpenAI-compatible Provider、具体工具、文件系统或子进程；真实依赖只在 `src/main.ts` 装配；
+- `awaiting_approval` 是显式 UI 状态；`y` 允许一次，`n` 或 Enter 默认拒绝，错误/过期/重复 ID 不生效，Ctrl+C 或 unmount 会 abort 并清理 broker；
 - `uiReducer` 确定性聚合流式 assistant 文本，按调用 ID 关联工具开始与结束，并忽略旧 run、迟到事件和重复终止事件；
 - 输入状态机按 Unicode 字素移动和删除，支持中文、组合字符、emoji 与粘贴规范化；输入、assistant 文本、transcript 和安全摘要均有显式上限；
 - 工具展示只使用白名单字段和 metadata，不默认渲染完整文件、patch 内容或命令输出，并在显示前清理控制字符、隐藏常见凭据；
@@ -295,4 +321,4 @@ TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 3. **可选 smoke**：只有设置 `EASYCODE_SMOKE=1` 才读取三个 Provider 环境变量并请求真实服务，普通 `npm test` 与 CI 默认跳过。
 4. **场景评测**：在 `evals/scenarios/` 中记录可复现任务，真实 Provider 运行与普通 CI 分离，并保存 revision、配置、命令和原始结果。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 进一步以本地 fixture 断言 wire 格式、SSE 字节边界、完成语义、错误脱敏、reader 清理和取消传播；M3 以临时 workspace 断言路径边界、资源上限、原子修改、命令控制和 Agent 闭环；M4 使用 `ink-testing-library` 与纯 reducer 测试覆盖中文输入、流式渲染、工具摘要、取消、会话提交/回滚及 40–120 列布局。默认测试不访问网络、用户仓库或真实 API。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 以注入 sleep/random/timer/request ID 的 fake transport、恶意 fake Tool、ApprovalBroker 和六个离线恢复场景断言不可重放、脱敏、确认及资源一致性。默认测试不访问网络、用户仓库或真实 API。

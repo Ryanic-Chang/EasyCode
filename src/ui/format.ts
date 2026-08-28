@@ -1,22 +1,12 @@
-import type { AgentTerminationReason } from "../agent/events.js";
+import type { AgentErrorCode, AgentTerminationReason } from "../agent/events.js";
 import type { ToolCall, ToolResult } from "../agent/messages.js";
+import { DEFAULT_REDACTOR } from "../security/redaction.js";
 import { splitGraphemes } from "./input.js";
 
 const MAX_FIELD_CHARACTERS = 160;
 const MAX_RESULT_CHARACTERS = 320;
-const SECRET_PATTERN = /\b(?:bearer\s+)?sk-[a-z0-9_.-]{8,}\b/gi;
-const AUTH_PATTERN =
-  /\b(authorization|api[_-]?key|access[_-]?token|password|passwd|private[_-]?key|secret|token)\b\s*[:=]\s*\S+/gi;
-
 function cleanText(value: string): string {
-  return [...value.replace(SECRET_PATTERN, "[已隐藏]").replace(AUTH_PATTERN, "$1=[已隐藏]")]
-    .map((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint < 32 || codePoint === 127 ? " " : character;
-    })
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+  return DEFAULT_REDACTOR.redactText(value).replace(/\s+/g, " ").trim();
 }
 
 export function summarizeText(value: string, maximum = MAX_RESULT_CHARACTERS): string {
@@ -120,6 +110,30 @@ export function terminationReasonText(reason: AgentTerminationReason): string {
       return "内部执行错误";
     case "max_steps":
       return "达到最大轮次";
+  }
+}
+
+export function retryReasonText(code: AgentErrorCode): string {
+  switch (code) {
+    case "provider_authentication":
+      return "鉴权错误";
+    case "provider_rate_limit":
+      return "频率受限";
+    case "provider_timeout":
+      return "请求超时";
+    case "provider_network":
+      return "网络错误";
+    case "provider_server":
+      return "服务端错误";
+    case "provider_http":
+      return "HTTP 错误";
+    case "provider_protocol":
+      return "协议错误";
+    case "tool_call_protocol":
+    case "tool_internal":
+    case "approval_denied":
+    case "internal_error":
+      return "内部错误";
   }
 }
 

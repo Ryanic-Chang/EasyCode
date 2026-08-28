@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleProvider } from "../../src/llm/openai-compatible/provider.js";
-import type { ProviderError, ProviderEvent, ProviderRequest } from "../../src/llm/provider.js";
+import type { ProviderError, ProviderErrorCode, ProviderEvent, ProviderRequest } from "../../src/llm/provider.js";
 import {
   basicRequest,
   collectProviderEvents,
@@ -16,10 +16,13 @@ function providerFor(
   fetch: ReturnType<typeof recordFetch>["fetch"],
   baseUrl = "https://example.test/compatible-mode/v1/",
 ) {
-  return new OpenAICompatibleProvider({ apiKey: "fixture-key", baseUrl: new URL(baseUrl) }, { fetch });
+  return new OpenAICompatibleProvider(
+    { apiKey: "fixture-key", baseUrl: new URL(baseUrl) },
+    { fetch, retry: { maxRetries: 0, baseDelayMs: 1 }, requestIdFactory: () => "fixture-request-id" },
+  );
 }
 
-function errorEvent(code: string, retryable: boolean): ProviderEvent {
+function errorEvent(code: ProviderErrorCode, retryable: boolean): ProviderEvent {
   return {
     type: "error",
     error: expect.objectContaining<Partial<ProviderError>>({ code, retryable }) as unknown as ProviderError,
@@ -72,6 +75,7 @@ describe("OpenAI-compatible 请求适配", () => {
       Accept: "text/event-stream",
       Authorization: "Bearer fixture-key",
       "Content-Type": "application/json",
+      "X-Client-Request-Id": "fixture-request-id",
     });
     expect(JSON.parse(String(call?.init?.body))).toEqual({
       model: "fixture-model",
@@ -137,7 +141,7 @@ describe("OpenAI-compatible 请求适配", () => {
     };
 
     await expect(collectProviderEvents(providerFor(recorder.fetch).stream(request))).resolves.toEqual([
-      errorEvent("protocol_error", false),
+      errorEvent("provider_protocol", false),
     ]);
     expect(recorder.calls).toHaveLength(0);
   });
@@ -256,7 +260,7 @@ describe("OpenAI-compatible 协议拒绝", () => {
     const recorder = recordFetch(responseFromChunks([encode(sseData(payload))]));
     await expect(collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest))).resolves.toEqual([
       { type: "start" },
-      errorEvent("protocol_error", false),
+      errorEvent("provider_protocol", false),
     ]);
   });
 
@@ -271,14 +275,14 @@ describe("OpenAI-compatible 协议拒绝", () => {
   ])("拒绝%s", async (_name, stream) => {
     const recorder = recordFetch(responseFromChunks([encode(stream)]));
     const events = await collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest));
-    expect(events.at(-1)).toEqual(errorEvent("protocol_error", false));
+    expect(events.at(-1)).toEqual(errorEvent("provider_protocol", false));
   });
 
   it("拒绝损坏的 UTF-8", async () => {
     const recorder = recordFetch(responseFromChunks([new Uint8Array([0xff, 0xfe])]));
     await expect(collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest))).resolves.toEqual([
       { type: "start" },
-      errorEvent("protocol_error", false),
+      errorEvent("provider_protocol", false),
     ]);
   });
 
@@ -288,23 +292,23 @@ describe("OpenAI-compatible 协议拒绝", () => {
   ])("拒绝%s", async (_name, response) => {
     const recorder = recordFetch(response);
     await expect(collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest))).resolves.toEqual([
-      errorEvent("protocol_error", false),
+      errorEvent("provider_protocol", false),
     ]);
   });
 });
 
 describe("OpenAI-compatible 错误与取消", () => {
   it.each([
-    [401, "authentication", false],
-    [403, "authentication", false],
-    [429, "rate_limit", true],
-    [400, "http_error", false],
-    [408, "http_error", true],
-    [409, "http_error", true],
-    [425, "http_error", true],
-    [500, "server_error", true],
-    [503, "server_error", true],
-  ])("HTTP %i 映射为 %s", async (status, code, retryable) => {
+    [401, "provider_authentication", false],
+    [403, "provider_authentication", false],
+    [429, "provider_rate_limit", true],
+    [400, "provider_http", false],
+    [408, "provider_timeout", true],
+    [409, "provider_http", true],
+    [425, "provider_http", false],
+    [500, "provider_server", true],
+    [503, "provider_server", true],
+  ] as const)("HTTP %i 映射为 %s", async (status, code, retryable) => {
     const recorder = recordFetch(new Response("SENSITIVE_FIXTURE_VALUE", { status }));
     const events = await collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest));
     expect(events).toEqual([errorEvent(code, retryable)]);
@@ -317,7 +321,7 @@ describe("OpenAI-compatible 错误与取消", () => {
       throw new Error("SENSITIVE_NETWORK_DETAIL");
     });
     const events = await collectProviderEvents(providerFor(fetch).stream(basicRequest));
-    expect(events).toEqual([errorEvent("network_error", true)]);
+    expect(events).toEqual([errorEvent("provider_network", true)]);
     expect(JSON.stringify(events)).not.toContain("SENSITIVE_NETWORK_DETAIL");
   });
 
@@ -335,7 +339,7 @@ describe("OpenAI-compatible 错误与取消", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
   });
 
-  it("将同一个 AbortSignal 传给 fetch，并在流中取消时释放 reader、不转成 Provider 错误", async () => {
+  it("将调用方取消组合进 attempt signal，并在流中取消时释放 reader、不转成 Provider 错误", async () => {
     const controller = new AbortController();
     let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     const cancel = vi.fn();
@@ -346,7 +350,8 @@ describe("OpenAI-compatible 错误与取消", () => {
       cancel,
     });
     const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-      expect(init?.signal).toBe(controller.signal);
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(init?.signal).not.toBe(controller.signal);
       return new Response(stream, { headers: { "content-type": "text/event-stream" } });
     });
     const collecting = collectProviderEvents(providerFor(fetch).stream(basicRequest, { signal: controller.signal }));

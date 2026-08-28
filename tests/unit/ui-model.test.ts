@@ -63,11 +63,11 @@ describe("TUI AgentEvent reducer", () => {
     state = event(state, 2, {
       type: "error",
       step: 1,
-      error: { code: "provider_error", message: "模型服务不可用", recoverable: false },
+      error: { code: "provider_server", message: "模型服务不可用", recoverable: false },
     });
     state = event(state, 2, { type: "complete", step: 1, reason: "provider_error" });
     expect(state.phase).toBe("idle");
-    expect(state.currentError?.code).toBe("provider_error");
+    expect(state.currentError?.code).toBe("provider_server");
     expect(state.terminationReason).toBe("provider_error");
   });
 

@@ -1,3 +1,4 @@
+import type { ApprovalController, ApprovalDecision } from "./approval.js";
 import type { AgentEvent, AgentTerminationReason } from "./events.js";
 import type { AgentLoop } from "./loop.js";
 import type { Message } from "./messages.js";
@@ -22,6 +23,8 @@ export interface AgentRunOptions {
 
 export interface AgentRunner {
   submit(task: string, options: AgentRunOptions): AsyncGenerator<SessionEvent, SessionRunResult>;
+  resolveApproval(decision: ApprovalDecision): boolean;
+  dispose(): void;
 }
 
 export class SessionBusyError extends Error {
@@ -33,12 +36,14 @@ export class SessionBusyError extends Error {
 
 export class AgentSession implements AgentRunner {
   readonly #agent: AgentLoop;
+  readonly #approvalController: ApprovalController | undefined;
   #messages: readonly Message[];
   #activeRunId: number | undefined;
   #nextRunId = 1;
 
-  constructor(agent: AgentLoop) {
+  constructor(agent: AgentLoop, approvalController?: ApprovalController) {
     this.#agent = agent;
+    this.#approvalController = approvalController;
     this.#messages = [{ role: "system", content: DEFAULT_SYSTEM_PROMPT }];
   }
 
@@ -59,6 +64,14 @@ export class AgentSession implements AgentRunner {
 
   snapshot(): readonly Message[] {
     return [...this.#messages];
+  }
+
+  resolveApproval(decision: ApprovalDecision): boolean {
+    return this.#approvalController?.resolve(decision) ?? false;
+  }
+
+  dispose(): void {
+    this.#approvalController?.dispose();
   }
 
   async *#run(

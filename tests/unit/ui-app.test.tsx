@@ -1,7 +1,7 @@
 import { renderToString } from "ink";
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import type { ApprovalDecision } from "../../src/agent/approval.js";
 import type { AgentEvent } from "../../src/agent/events.js";
 import type { AgentRunner, AgentRunOptions, SessionEvent, SessionRunResult } from "../../src/agent/session.js";
 import { EasyCodeApp, EasyCodeView } from "../../src/ui/app.js";
@@ -13,6 +13,8 @@ type Script = (runId: number, options: AgentRunOptions) => AsyncGenerator<Sessio
 
 class ScriptedRunner implements AgentRunner {
   readonly submissions: Array<{ readonly task: string; readonly signal: AbortSignal }> = [];
+  readonly approvals: ApprovalDecision[] = [];
+  approvalHandler: ((decision: ApprovalDecision) => boolean) | undefined;
   readonly #scripts: Script[];
 
   constructor(scripts: readonly Script[]) {
@@ -27,6 +29,13 @@ class ScriptedRunner implements AgentRunner {
     this.submissions.push({ task, signal: options.signal });
     return script(this.submissions.length, options);
   }
+
+  resolveApproval(decision: ApprovalDecision): boolean {
+    this.approvals.push(decision);
+    return this.approvalHandler?.(decision) ?? false;
+  }
+
+  dispose(): void {}
 }
 
 function eventsScript(events: readonly AgentEvent[]): Script {
@@ -65,6 +74,98 @@ describe("中文 Ink TUI", () => {
     expect(frame).toContain("[等待输入]");
     expect(frame).toContain("› │");
     expect(frame).not.toContain("快捷键");
+  });
+
+  it.each([
+    ["\r", false, "已拒绝"],
+    ["n", false, "已拒绝"],
+    ["y", true, "已允许"],
+  ] as const)("确认输入 %j 只解析一次，Enter 默认拒绝", async (input, approved, label) => {
+    const decision = createDeferred<ApprovalDecision>();
+    const runner = new ScriptedRunner([
+      async function* (runId) {
+        yield {
+          runId,
+          event: {
+            type: "approval_required",
+            step: 1,
+            request: {
+              approvalId: "approval-ui",
+              step: 1,
+              toolCallId: "command-ui",
+              toolName: "run_command",
+              riskCategory: "command_execution",
+              actionSummary: "node verify.mjs · . · 30000 ms",
+            },
+          },
+        };
+        const resolved = await decision.promise;
+        yield {
+          runId,
+          event: {
+            type: "approval_resolved",
+            step: 1,
+            approvalId: resolved.approvalId,
+            toolCallId: "command-ui",
+            toolName: "run_command",
+            approved: resolved.approved,
+          },
+        };
+        yield { runId, event: { type: "complete", step: 1, reason: "complete" } };
+        return { runId, reason: "complete" };
+      },
+    ]);
+    runner.approvalHandler = (value) => {
+      decision.resolve(value);
+      return true;
+    };
+    const instance = render(app(runner, { columns: 40, colorEnabled: false }));
+    instance.stdin.write("运行验证");
+    instance.stdin.write("\r");
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain("[等待确认]"));
+    expect(instance.lastFrame()).toContain("一次性授权");
+    instance.stdin.write(input);
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain(`[${label}] run_command`));
+    expect(runner.approvals).toEqual([{ approvalId: "approval-ui", approved }]);
+  });
+
+  it("等待确认时 Ctrl+C 取消当前 run，不提交 decision", async () => {
+    const entered = createDeferred<void>();
+    const runner = new ScriptedRunner([
+      async function* (runId, options) {
+        yield {
+          runId,
+          event: {
+            type: "approval_required",
+            step: 1,
+            request: {
+              approvalId: "approval-abort",
+              step: 1,
+              toolCallId: "command-abort",
+              toolName: "run_command",
+              riskCategory: "command_execution",
+              actionSummary: "node verify.mjs",
+            },
+          },
+        };
+        entered.resolve(undefined);
+        try {
+          await waitForAbort(options.signal);
+        } catch {
+          // 测试 runner 将取消转换为与 AgentSession 一致的 terminal event。
+        }
+        yield { runId, event: { type: "complete", step: 1, reason: "aborted" } };
+        return { runId, reason: "aborted" };
+      },
+    ]);
+    const instance = render(app(runner));
+    instance.stdin.write("运行验证");
+    instance.stdin.write("\r");
+    await entered.promise;
+    instance.stdin.write("\u0003");
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain("[任务已取消]"));
+    expect(runner.submissions[0]?.signal.aborted).toBe(true);
+    expect(runner.approvals).toHaveLength(0);
   });
 
   it("中文任务提交后流式累计到同一 assistant block，完成后恢复输入", async () => {
@@ -159,7 +260,7 @@ describe("中文 Ink TUI", () => {
             {
               type: "error",
               step: 1,
-              error: { code: "provider_error", message: "模型服务暂时不可用", recoverable: false },
+              error: { code: "provider_server", message: "模型服务暂时不可用", recoverable: false },
             },
           ]
         : [];
@@ -170,7 +271,7 @@ describe("中文 Ink TUI", () => {
     await vi.waitFor(() => expect(instance.lastFrame()).toContain(`[${label}]`));
     expect(instance.lastFrame()).toContain("[等待输入]");
     if (reason === "provider_error") {
-      expect(instance.lastFrame()).toContain("[错误] provider_error · 模型服务暂时不可用");
+      expect(instance.lastFrame()).toContain("[错误] provider_server · 模型服务暂时不可用");
     }
   });
 

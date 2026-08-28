@@ -1,11 +1,17 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   Provider,
+  ProviderError,
   ProviderEvent,
   ProviderMessage,
   ProviderRequest,
   ProviderToolDefinition,
 } from "../llm/provider.js";
+import { Redactor } from "../security/redaction.js";
+import { sanitizeToolExecutionResult } from "../security/tool-result.js";
 import type { PreparedTool, ToolRegistry } from "../tools/registry.js";
+import { type ApprovalGate, type ApprovalRequest, DenyApprovalGate } from "./approval.js";
 import type { AgentError, AgentEvent, AgentTerminationReason } from "./events.js";
 import type { AssistantMessage, Message, ToolCall, ToolResult } from "./messages.js";
 
@@ -15,6 +21,9 @@ export interface AgentLoopConfig {
   readonly model: string;
   readonly cwd: string;
   readonly maxSteps: number;
+  readonly approvalGate?: ApprovalGate;
+  readonly approvalIdFactory?: () => string;
+  readonly redactor?: Redactor;
 }
 
 export interface AgentRunOptions {
@@ -51,17 +60,59 @@ interface PreparedCall {
 class ProtocolViolation extends Error {}
 
 const PROTOCOL_ERROR: AgentError = {
-  code: "protocol_error",
-  message: "模型返回的工具调用无效，已停止执行。",
+  code: "tool_call_protocol",
+  message: "模型返回的工具调用无效，工具未执行；请重新描述任务后再试。",
   recoverable: false,
 };
 
-const PROVIDER_ERROR_MESSAGE = "模型服务暂时不可用，请稍后重试。";
+const TOOL_INTERNAL_ERROR: AgentError = {
+  code: "tool_internal",
+  message: "工具发生内部错误，已停止本次任务；请检查工具实现或重新尝试。",
+  recoverable: false,
+};
 
 const INTERNAL_ERROR: AgentError = {
   code: "internal_error",
-  message: "工具执行失败，已停止本次任务。",
-  recoverable: false,
+  message: "内部状态发生异常，已安全停止；请重新启动 EasyCode 后再试。",
+  recoverable: true,
+};
+
+const PROVIDER_ERRORS: Readonly<Record<ProviderError["code"], AgentError>> = {
+  provider_authentication: {
+    code: "provider_authentication",
+    message: "模型服务鉴权失败，请检查或轮换 API 凭据后重试。",
+    recoverable: true,
+  },
+  provider_rate_limit: {
+    code: "provider_rate_limit",
+    message: "模型服务请求频率受限，请稍后重试。",
+    recoverable: true,
+  },
+  provider_timeout: {
+    code: "provider_timeout",
+    message: "模型请求超时，请检查网络或 base URL，稍后重试。",
+    recoverable: true,
+  },
+  provider_network: {
+    code: "provider_network",
+    message: "无法连接模型服务，请检查网络或 base URL 后重试。",
+    recoverable: true,
+  },
+  provider_server: {
+    code: "provider_server",
+    message: "模型服务暂时不可用，请稍后重试。",
+    recoverable: true,
+  },
+  provider_http: {
+    code: "provider_http",
+    message: "模型服务拒绝了请求，请检查 base URL、模型名称或请求参数。",
+    recoverable: false,
+  },
+  provider_protocol: {
+    code: "provider_protocol",
+    message: "模型服务响应与已声明协议不兼容，请检查服务地址或模型。",
+    recoverable: false,
+  },
 };
 
 function snapshot(reason: AgentTerminationReason, step: number, messages: readonly Message[]): AgentRunResult {
@@ -78,6 +129,23 @@ function isNonEmptyField(value: string): boolean {
 
 function isAbort(signal: AbortSignal): boolean {
   return signal.aborted;
+}
+
+function providerError(error: ProviderError): AgentError {
+  const mapped = PROVIDER_ERRORS[error.code];
+  return error.code === "provider_http" && error.retryable ? { ...mapped, recoverable: true } : mapped;
+}
+
+function approvalId(factory: () => string): string {
+  try {
+    const value = factory();
+    if (/^[A-Za-z0-9._-]{1,64}$/.test(value)) {
+      return value;
+    }
+  } catch {
+    // 使用无模型、用户或 workspace 数据的本地随机 ID 回退。
+  }
+  return `approval-${randomUUID()}`;
 }
 
 function updateStableField(current: string | undefined, incoming: string | undefined): string | undefined {
@@ -230,6 +298,9 @@ export class AgentLoop {
   readonly #model: string;
   readonly #cwd: string;
   readonly #maxSteps: number;
+  readonly #approvalGate: ApprovalGate;
+  readonly #approvalIdFactory: () => string;
+  readonly #redactor: Redactor;
 
   constructor(config: AgentLoopConfig) {
     if (!Number.isInteger(config.maxSteps) || config.maxSteps < 1) {
@@ -240,6 +311,9 @@ export class AgentLoop {
     this.#model = config.model;
     this.#cwd = config.cwd;
     this.#maxSteps = config.maxSteps;
+    this.#approvalGate = config.approvalGate ?? new DenyApprovalGate();
+    this.#approvalIdFactory = config.approvalIdFactory ?? (() => `approval-${randomUUID()}`);
+    this.#redactor = config.redactor ?? new Redactor();
   }
 
   async *run(
@@ -266,7 +340,7 @@ export class AgentLoop {
       let content = "";
       const buffers = new Map<number, ToolCallBuffer>();
       let finishReason: "stop" | "tool_calls" | "length" | undefined;
-      let phase: "provider" | "validation" | "tool" = "provider";
+      let phase: "provider" | "validation" | "approval" | "tool" = "provider";
 
       try {
         const stream = this.#provider.stream(buildRequest(this.#model, messages, this.#tools), { signal });
@@ -278,6 +352,16 @@ export class AgentLoop {
 
           switch (event.type) {
             case "start":
+              break;
+            case "retry":
+              yield {
+                type: "provider_retry",
+                step,
+                attempt: event.attempt,
+                maxRetries: event.maxRetries,
+                delayMs: event.delayMs,
+                error: providerError(event.error),
+              };
               break;
             case "text_delta":
               content += event.delta;
@@ -291,12 +375,7 @@ export class AgentLoop {
               finishReason = event.reason;
               break;
             case "error": {
-              const providerError: AgentError = {
-                code: "provider_error",
-                message: PROVIDER_ERROR_MESSAGE,
-                recoverable: event.error.retryable,
-              };
-              yield { type: "error", step, error: providerError };
+              yield { type: "error", step, error: providerError(event.error) };
               yield { type: "complete", step, reason: "provider_error" };
               return snapshot("provider_error", step, messages);
             }
@@ -329,8 +408,48 @@ export class AgentLoop {
         phase = "tool";
         for (const prepared of preparedCalls) {
           signal.throwIfAborted();
+          const requirement = prepared.tool.approvalRequirement;
+          if (requirement !== undefined) {
+            const request: ApprovalRequest = {
+              approvalId: approvalId(this.#approvalIdFactory),
+              step,
+              toolCallId: prepared.call.id,
+              toolName: prepared.call.name,
+              riskCategory: this.#redactor.redactText(requirement.riskCategory, 128),
+              actionSummary: this.#redactor.redactText(requirement.actionSummary, 1024),
+            };
+            yield { type: "approval_required", step, request };
+            phase = "approval";
+            const decision = await this.#approvalGate.request(request, { signal });
+            signal.throwIfAborted();
+            phase = "tool";
+            const approved = decision.approvalId === request.approvalId && decision.approved === true;
+            yield {
+              type: "approval_resolved",
+              step,
+              approvalId: request.approvalId,
+              toolCallId: prepared.call.id,
+              toolName: prepared.call.name,
+              approved,
+            };
+            if (!approved) {
+              const denied: ToolResult = {
+                toolCallId: prepared.call.id,
+                toolName: prepared.call.name,
+                output: "用户拒绝了本次高风险工具调用。请调整方案或提出更安全的操作。",
+                isError: true,
+                metadata: { kind: "approval_denied", code: "approval_denied" },
+              };
+              messages.push({ role: "tool", result: denied });
+              yield { type: "tool_end", step, result: denied };
+              continue;
+            }
+          }
           yield { type: "tool_start", step, toolCall: prepared.call };
-          const execution = await prepared.tool.execute({ cwd: this.#cwd, signal });
+          const execution = sanitizeToolExecutionResult(
+            await prepared.tool.execute({ cwd: this.#cwd, signal }),
+            this.#redactor,
+          );
           signal.throwIfAborted();
 
           const result: ToolResult = {
@@ -357,13 +476,19 @@ export class AgentLoop {
           yield {
             type: "error",
             step,
-            error: { code: "provider_error", message: PROVIDER_ERROR_MESSAGE, recoverable: false },
+            error: PROVIDER_ERRORS.provider_network,
           };
           yield { type: "complete", step, reason: "provider_error" };
           return snapshot("provider_error", step, messages);
         }
 
-        yield { type: "error", step, error: INTERNAL_ERROR };
+        if (phase === "approval") {
+          yield { type: "error", step, error: INTERNAL_ERROR };
+          yield { type: "complete", step, reason: "internal_error" };
+          return snapshot("internal_error", step, messages);
+        }
+
+        yield { type: "error", step, error: TOOL_INTERNAL_ERROR };
         yield { type: "complete", step, reason: "internal_error" };
         return snapshot("internal_error", step, messages);
       }

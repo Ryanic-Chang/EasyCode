@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "../../src/agent/events.js";
 import { AgentLoop, type AgentRunResult } from "../../src/agent/loop.js";
 import type { Message } from "../../src/agent/messages.js";
-import type { ProviderEvent } from "../../src/llm/provider.js";
+import type { ProviderErrorCode, ProviderEvent } from "../../src/llm/provider.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import type { ToolExecutionResult } from "../../src/tools/tool.js";
 import { createDeferred, waitForAbort } from "../deferred.js";
@@ -239,7 +239,7 @@ describe("AgentLoop 验收场景", () => {
         { type: "text_delta", delta: "未完成" },
         {
           type: "error",
-          error: { code: "remote_error", message: "TOP_SECRET_VALUE", retryable: true },
+          error: { code: "provider_server", message: "TOP_SECRET_VALUE", retryable: true },
         },
       ],
     ]);
@@ -253,7 +253,7 @@ describe("AgentLoop 验收场景", () => {
     expect(run.events.find((event) => event.type === "error")).toEqual({
       type: "error",
       step: 1,
-      error: { code: "provider_error", message: "模型服务暂时不可用，请稍后重试。", recoverable: true },
+      error: { code: "provider_server", message: "模型服务暂时不可用，请稍后重试。", recoverable: true },
     });
     expect(JSON.stringify(run.events)).not.toContain("TOP_SECRET_VALUE");
   });
@@ -272,6 +272,28 @@ describe("AgentLoop 验收场景", () => {
     expect(run.result.messages).toEqual(initialMessages);
     expect(terminationReasons(run.events)).toEqual(["provider_error"]);
     expect(JSON.stringify(run.events)).not.toContain("TOP_SECRET_VALUE");
+  });
+
+  it.each([
+    ["provider_authentication", false, true],
+    ["provider_rate_limit", true, true],
+    ["provider_timeout", true, true],
+    ["provider_network", true, true],
+    ["provider_server", true, true],
+    ["provider_http", false, false],
+    ["provider_http", true, true],
+    ["provider_protocol", false, false],
+  ] as const)("M5-01：%s retryable=%s 映射为稳定中文错误", async (code, retryable, recoverable) => {
+    const provider = new FakeProvider([
+      [{ type: "error", error: { code: code as ProviderErrorCode, message: "SENSITIVE_PROVIDER_DETAIL", retryable } }],
+    ]);
+    const run = await collectRun(createAgent(provider).run(initialMessages));
+    const error = run.events.find((event) => event.type === "error");
+    expect(error).toMatchObject({ error: { code, recoverable } });
+    if (error?.type === "error") {
+      expect(error.error.message).toMatch(/[\u4e00-\u9fff]/);
+    }
+    expect(JSON.stringify(run.events)).not.toContain("SENSITIVE_PROVIDER_DETAIL");
   });
 
   it("AL-06：Provider 流暂停时取消，传播同一 AbortSignal 且不再请求", async () => {

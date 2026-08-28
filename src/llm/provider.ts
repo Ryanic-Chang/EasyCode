@@ -53,8 +53,17 @@ export interface ProviderStreamOptions {
   readonly signal?: AbortSignal;
 }
 
+export type ProviderErrorCode =
+  | "provider_authentication"
+  | "provider_rate_limit"
+  | "provider_timeout"
+  | "provider_network"
+  | "provider_server"
+  | "provider_http"
+  | "provider_protocol";
+
 export interface ProviderError {
-  readonly code: string;
+  readonly code: ProviderErrorCode;
   readonly message: string;
   readonly retryable: boolean;
 }
@@ -77,6 +86,13 @@ export type ProviderEvent =
       readonly arguments: unknown;
     }
   | { readonly type: "finish"; readonly reason: "stop" | "tool_calls" | "length" }
+  | {
+      readonly type: "retry";
+      readonly attempt: number;
+      readonly maxRetries: number;
+      readonly delayMs: number;
+      readonly error: ProviderError;
+    }
   | { readonly type: "error"; readonly error: ProviderError };
 
 export interface Provider {

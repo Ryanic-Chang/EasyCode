@@ -17,8 +17,39 @@ describe("Provider 配置", () => {
       apiKey: "fixture-key",
       baseUrl: new URL("https://example.test/compatible-mode/v1/"),
       model: "fixture-model",
+      maxRetries: 2,
+      retryBaseDelayMs: 500,
+      requestTimeoutMs: 30_000,
     });
     expect(environment).toEqual(snapshot);
+  });
+
+  it("读取严格有界的 retry 与 timeout 配置", () => {
+    expect(
+      loadEasyCodeConfig({
+        ...validEnvironment,
+        EASYCODE_MAX_RETRIES: "5",
+        EASYCODE_RETRY_BASE_DELAY_MS: "50",
+        EASYCODE_REQUEST_TIMEOUT_MS: "120000",
+      }),
+    ).toMatchObject({ maxRetries: 5, retryBaseDelayMs: 50, requestTimeoutMs: 120_000 });
+  });
+
+  it.each([
+    ["EASYCODE_MAX_RETRIES", ""],
+    ["EASYCODE_MAX_RETRIES", "-1"],
+    ["EASYCODE_MAX_RETRIES", "6"],
+    ["EASYCODE_MAX_RETRIES", "1.5"],
+    ["EASYCODE_MAX_RETRIES", " 1"],
+    ["EASYCODE_RETRY_BASE_DELAY_MS", "49"],
+    ["EASYCODE_RETRY_BASE_DELAY_MS", "Infinity"],
+    ["EASYCODE_REQUEST_TIMEOUT_MS", "999"],
+    ["EASYCODE_REQUEST_TIMEOUT_MS", "NaN"],
+    ["EASYCODE_REQUEST_TIMEOUT_MS", "120001"],
+  ])("拒绝非法整数配置 %s=%s", (name, value) => {
+    expect(() => loadEasyCodeConfig({ ...validEnvironment, [name]: value })).toThrowError(
+      expect.objectContaining<Partial<ConfigError>>({ code: "invalid_integer" }),
+    );
   });
 
   it.each(["EASYCODE_API_KEY", "EASYCODE_BASE_URL", "EASYCODE_MODEL"] as const)(

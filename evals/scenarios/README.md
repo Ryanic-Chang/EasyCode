@@ -26,4 +26,6 @@ M4 通过 `tests/integration/tui-agent.test.tsx` 增加两条离线 TUI 闭环�
 
 纯组件证据位于 `tests/unit/ui-app.test.tsx`，覆盖输入、paste、工具成功/失败、错误与终止、两阶段 Ctrl+C、unmount、无颜色及 120/80/60/40 columns。测试帧不包含真实密钥或 Provider 请求。
 
+M5 通过 `tests/integration/m5-recovery.test.tsx` 增加六条离线恢复闭环：429 重试后读取文件；允许一次高风险调用；拒绝后模型改用安全方案；等待确认时取消并回滚；成功流开始后断流且不重放；恶意 ToolResult 跨 Provider、AgentEvent 与 TUI 收敛。`tests/unit/retry-policy.test.ts`、`provider-retry.test.ts`、`redaction.test.ts` 与 `approval.test.ts` 提供更细的边界证据，全部使用可注入时钟/等待、fake transport、fake Tool 或内存 UI，不执行真实 API。
+
 未来真实评测仍应记录 fixture、配置、执行命令、代码 revision 和原始结果，并与这些离线单元测试分离。
