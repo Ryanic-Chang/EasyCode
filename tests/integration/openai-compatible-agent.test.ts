@@ -48,7 +48,18 @@ describe("OpenAI-compatible Provider 与 Agent Loop 集成", () => {
           tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "lookup", arguments: '{"pa' } }],
         }),
       ),
-      sseData(completionChunk({ tool_calls: [{ index: 0, function: { arguments: 'th":"src/main.ts"}' } }] })),
+      sseData(
+        completionChunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: "",
+              type: "function",
+              function: { name: null, arguments: 'th":"src/main.ts"}' },
+            },
+          ],
+        }),
+      ),
       sseData(completionChunk({}, "tool_calls")),
       sseData("[DONE]"),
     ].join("");

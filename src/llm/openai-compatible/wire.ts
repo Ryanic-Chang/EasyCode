@@ -125,6 +125,11 @@ function optionalString(record: JsonRecord, key: string): string | undefined {
   return value;
 }
 
+function optionalToolIdentity(record: JsonRecord, key: string): string | undefined {
+  const value = optionalString(record, key);
+  return value === "" ? undefined : value;
+}
+
 function parseToolCallDelta(value: unknown): ProviderEvent {
   if (!isRecord(value) || !isNonNegativeInteger(value.index)) {
     throw new OpenAICompatibleProtocolError();
@@ -137,8 +142,8 @@ function parseToolCallDelta(value: unknown): ProviderEvent {
   }
 
   const functionDelta = isRecord(value.function) ? value.function : {};
-  const id = optionalString(value, "id");
-  const name = optionalString(functionDelta, "name");
+  const id = optionalToolIdentity(value, "id");
+  const name = optionalToolIdentity(functionDelta, "name");
   const argumentsDelta = optionalString(functionDelta, "arguments");
 
   return {

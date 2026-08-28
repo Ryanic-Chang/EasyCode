@@ -1,6 +1,6 @@
 {
   "name": "easycode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "中文优先、可解释、可验证的轻量 Coding Agent",
   "license": "MIT",

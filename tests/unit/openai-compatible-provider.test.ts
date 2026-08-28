@@ -199,6 +199,33 @@ describe("OpenAI-compatible SSE 归一化", () => {
     ]);
   });
 
+  it("将百炼 continuation chunk 的空 ToolCall 身份字段视为未提供", async () => {
+    const stream = [
+      sseData(
+        completionChunk({
+          tool_calls: [{ index: 0, id: "call-qwen", type: "function", function: { name: "read", arguments: '{"pa' } }],
+        }),
+      ),
+      sseData(
+        completionChunk({
+          tool_calls: [
+            { index: 0, id: "", type: "function", function: { name: null, arguments: 'th":"src/main.ts"}' } },
+          ],
+        }),
+      ),
+      sseData(completionChunk({}, "tool_calls")),
+      sseData("[DONE]"),
+    ].join("");
+    const recorder = recordFetch(responseFromChunks([encode(stream)]));
+
+    await expect(collectProviderEvents(providerFor(recorder.fetch).stream(basicRequest))).resolves.toEqual([
+      { type: "start" },
+      { type: "tool_call_delta", index: 0, id: "call-qwen", name: "read", argumentsDelta: '{"pa' },
+      { type: "tool_call_delta", index: 0, argumentsDelta: 'th":"src/main.ts"}' },
+      { type: "finish", reason: "tool_calls" },
+    ]);
+  });
+
   it.each(["stop", "tool_calls", "length"] as const)("映射 finish_reason=%s", async (reason) => {
     const recorder = recordFetch(
       responseFromChunks([encode(`${sseData(completionChunk({}, reason))}${sseData("[DONE]")}`)]),
