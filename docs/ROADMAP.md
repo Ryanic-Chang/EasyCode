@@ -13,7 +13,7 @@ EasyCode 采用纵向切片推进：每个里程碑只增加一组可独立验�
 - **M4：已完成**，中文 Ink TUI、内存 Session 与取消生命周期已由纯逻辑、组件和离线集成测试覆盖。
 - **M5：已完成**，统一错误、Provider 恢复策略、统一脱敏、ToolResult 防线与逐调用确认门已有确定性证据。
 - **M6：已完成**，固定 fixture、客观 grader、usage/事件指标、原子隐私报告及 offline/real 隔离已有自动化证据。
-- **M7：未开始**，只保留交付加固范围与验收入口。
+- **M7：已完成**，v0.1.0 CLI、最小 tarball、package smoke、许可证清单、三平台最低版本 CI 与交付文档已有可复现证据。
 
 ## 2. M0：工程基线
 
@@ -120,13 +120,14 @@ EasyCode 采用纵向切片推进：每个里程碑只增加一组可独立验�
 
 范围：
 
-- 安装、配置、使用、安全边界与故障排查文档；
-- Windows、macOS、Linux 的最低兼容性检查；
-- 依赖许可证与供应链复核；
-- 演示任务、验收清单、已知限制和版本说明；
-- 从空环境按锁文件安装并完成全量检查。
+- 无配置可用的中文 `--help`、单一版本来源的 `--version` 与稳定未知参数行为；
+- 只包含运行文件和必要文档的 tarball，以及临时空目录中的跨平台安装 smoke；
+- Windows、macOS、Linux 在最低 Node.js 22 的 compatibility CI，及 Ubuntu Node.js 24 完整 quality CI；
+- 生产依赖许可证清单、依赖树、audit 与供应链复核；
+- 安装、配置、演示、安全边界、故障排查、版本说明和 release checklist；
+- 从干净环境按锁文件安装并完成质量门、offline eval 与 package smoke。
 
-完成标准：核心场景通过，有可复现演示，仓库不含密钥或运行残留，已知限制明确。
+完成标准：核心场景与交付 smoke 通过，三平台 CI 有实际证据，仓库、历史和 tarball 不含真实密钥或运行残留，已知限制明确；不执行 npm publish、tag 或 GitHub Release。
 
 ## 10. 第一版主动排除项
 

@@ -1,6 +1,6 @@
 # EasyCode 设计决策记录
 
-本文记录会长期影响实现方式的 M0–M4 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
+本文记录会长期影响实现方式的 M0–M7 决策。每项决策都说明理由、被放弃的方案和当前代价；如果未来条件变化，应新增或修订记录，而不是让代码静默偏离。
 
 ## ADR-001：使用 TypeScript + Node.js >= 22
 
@@ -179,3 +179,24 @@
 - **决策**：`MetricsCollector` 只消费公开 `AgentEvent`，时间源以单调函数注入。报告只保存复现元数据、聚合指标、终止/错误码和安全断言记录，不序列化事件或会话正文；payload hash 后通过临时文件 + rename 提交到 `.easycode/evals/`。
 - **理由**：旁路采集避免可观测性改变业务顺序；注入时钟消除测试 sleep；窄 schema 同时满足失败证据和最少披露，原子提交避免半份 JSON 被误认作完整结果。
 - **后果**：M6 没有 trace、远程日志、OpenTelemetry、数据库或 dashboard；duration 仅供观察。没有显式价格配置时不计算货币成本。
+
+## ADR-024：CLI 参数在配置与 UI 之前分流，版本以 package.json 为唯一来源
+
+- **状态**：已接受
+- **决策**：只支持无参数、`--help` 与 `--version` 三种公开入口，不引入 CLI framework。帮助和版本在 Provider 配置读取前完成；其他参数稳定拒绝且不回显不可信输入。CLI 运行时读取随包交付的 `package.json.version`，测试约束 CHANGELOG 标题一致。
+- **理由**：首版参数面极小，显式解析比框架更轻且更容易证明不会读取凭据或联网。单一运行时来源消除 package 与 CLI 常量漂移。
+- **后果**：暂不支持短参数、组合参数、子命令或 shell completion；新增参数必须先定义歧义、输出流和 exit code 契约。
+
+## ADR-025：交付包采用 files allowlist、干净构建与隔离安装 smoke
+
+- **状态**：已接受
+- **决策**：`prepack` 只执行无网络构建；构建先清理经过根路径校验的 `dist`，且不输出 source map 或声明。tarball 仅含运行 JavaScript、package metadata、README、LICENSE、CHANGELOG 与必要安全/排障/许可证文档。package smoke 通过当前 npm CLI 在临时空目录安装并验证 bin、生产依赖、输出、退出码和 CLI 无网络行为，始终清理 cache 与产物。
+- **理由**：denylist 容易随目录增长泄露源码、fixture、报告或内部文件；allowlist 和真实安装能直接证明消费者看到的内容与行为。
+- **后果**：新增运行时资源必须显式加入 allowlist 和 smoke；项目继续 `private: true`，该能力不授权 npm publish。
+
+## ADR-026：兼容性与供应链使用两层 CI 和确定性许可证清单
+
+- **状态**：已接受
+- **决策**：Ubuntu Node.js 24 quality job 执行完整质量门、offline eval、package smoke、依赖树、许可证与 audit；Windows/macOS/Linux 以最低 Node.js 22 执行质量门、offline eval 和 package smoke。CI 只授予 `contents: read`。许可证脚本读取实际安装的生产 package metadata，以显式兼容标识 allowlist 校验并与版本化声明逐字比较。
+- **理由**：最新运行时质量证据不能替代最低版本和平台路径证据；依赖树与许可证声明必须从锁定安装事实生成，手工清单容易漂移。
+- **后果**：新增或升级依赖可能因未知许可证或 notices 漂移而失败，需要人工审查后更新；audit 发现需按生产/dev、直接/传递和可利用性处理，不能为了绿色盲目 major upgrade。

@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { ApprovalBroker } from "./agent/approval.js";
 import { AgentLoop } from "./agent/loop.js";
 import { AgentSession } from "./agent/session.js";
+import { HELP_TEXT, parseCliArguments, readPackageVersion, UNKNOWN_ARGUMENT_TEXT } from "./cli.js";
 import { ConfigError, type EasyCodeConfig, loadEasyCodeConfig } from "./config/config.js";
 import { OpenAICompatibleProvider } from "./llm/openai-compatible/provider.js";
 import { SILENT_LOGGER } from "./security/logger.js";
@@ -20,6 +21,26 @@ function writeStartupError(message: string): void {
 }
 
 async function main(): Promise<void> {
+  const action = parseCliArguments(process.argv.slice(2));
+  if (action === "help") {
+    process.stdout.write(HELP_TEXT);
+    return;
+  }
+  if (action === "version") {
+    try {
+      process.stdout.write(`${readPackageVersion()}\n`);
+    } catch {
+      writeStartupError("无法读取版本信息");
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (action === "invalid") {
+    process.stderr.write(UNKNOWN_ARGUMENT_TEXT);
+    process.exitCode = 2;
+    return;
+  }
+
   let config: EasyCodeConfig;
   try {
     config = loadEasyCodeConfig(process.env);

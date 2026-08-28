@@ -28,6 +28,14 @@ Provider 只在成功 SSE stream 发布 `start` 前对瞬时候选错误有界�
 - 报告写入 `.easycode/evals/`，先写同目录临时文件再 rename，并以 payload SHA-256 校验完整性；该目录被 Git 忽略。
 - `eval:real` 默认关闭，开关检查先于 Provider 配置读取。真实 Provider 输出不会进入受版本控制的 fixture 或报告正文，也不会自动替换任何基线。
 
+## CLI 与交付卫生
+
+- `--help` 与 `--version` 在 Provider 配置读取前完成；未知参数不回显输入。package smoke 清除全部 `EASYCODE_*` 环境变量，并为安装后 CLI 注入 `fetch` 网络防线。
+- tarball 使用 `files` allowlist，只包含编译后的运行文件与必要公开文档；不包含源码、测试、eval fixture、CI、`.env`、`.easycode`、cache、coverage、报告、source map 或内部协作文件。
+- `prepack` 只清理经过项目根路径校验的 `dist` 并离线编译，不读取 Provider 配置、不修改源码、不运行真实评测。
+- 生产依赖许可证从实际安装 package metadata 枚举；缺失、未知、未审查或明显不兼容标识会失败。版本化 notices 与安装事实不一致同样失败。
+- 项目保持 `private: true`。打包和安装 smoke 不授权 npm publish、Git tag 或 GitHub Release。
+
 ## 明确限制
 
-EasyCode 的 workspace、命令白/黑名单、timeout、取消和确认门不是容器或 OS 级强沙箱。被允许的进程仍具有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；当前实现不保证完整进程树隔离。Session 回滚只恢复模型历史，不能撤销已经完成的文件或命令副作用。
+EasyCode 的 workspace、命令白/黑名单、timeout、取消和确认门不是容器或 OS 级强沙箱。被允许的进程仍具有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；当前实现不保证完整进程树隔离。Session 回滚只恢复模型历史，不能撤销已经完成的文件或命令副作用。v0.1.0 不包含 Session 持久化、长期记忆、context compression、远程 telemetry、dashboard、多 Provider、自动选模、Git push/PR 工具、插件或 GUI。

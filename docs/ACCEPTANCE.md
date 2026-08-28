@@ -2,7 +2,7 @@
 
 ## 1. 使用说明
 
-本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M6 已根据自动化测试和提交前质量门更新状态，M7 行为不会提前标记为完成。
+本文件定义可以被自动化测试或可复现命令证明的验收标准。`[ ]` 表示尚未验收，不等于计划遗漏。M1–M7 状态只根据自动化测试、可复现命令和 CI 事实更新。
 
 验收证据必须包含实际命令与结果；真实 Provider 场景还应记录代码 revision、Node.js/依赖版本、模型、安全配置、时间和客观断言结果。不得以截图或口头描述替代可重复检查，也不得为“原始证据”持久化会话或工具正文。
 
@@ -100,9 +100,14 @@ M6 固定场景定义见 `evals/scenarios/catalog.ts`，说明见 `evals/scenari
 
 ## 9. M7 交付验收
 
-| 状态 | 验收项 |
-| --- | --- |
-| [ ] | Windows、macOS、Linux 的最低支持范围经过实际验证或明确标注限制 |
-| [ ] | 从干净环境执行 `npm ci` 和 `npm run check` 可复现通过结果 |
-| [ ] | README 包含安装、配置、使用、安全边界、故障排查和已知限制 |
-| [ ] | 仓库与 Git 历史不含密钥、`.env`、会话内容或不必要运行产物 |
+| ID | 状态 | 验收项 | 证据入口 |
+| --- | --- | --- | --- |
+| M7-01 | [x] 已验证 | `--help`、`--version`、未知参数与无配置启动具有稳定 stdout/stderr/exit code，帮助与版本无需配置和网络 | `cli.test.ts`、`npm run test:package` |
+| M7-02 | [x] 已验证 | `files` allowlist 生成的最小 tarball 可在临时空目录安装；生产依赖、bin、shebang 与内容边界合格 | `package.json`、`scripts/package-smoke.mjs`、`npm pack --dry-run --json` |
+| M7-03 | [x] 已验证 | Windows、macOS、Linux 均在最低 Node.js 22 执行 `npm ci`、质量门、offline eval 和 package smoke | `.github/workflows/ci.yml` compatibility matrix 与对应 GitHub Actions 运行 |
+| M7-04 | [x] 已验证 | 干净 `npm ci` 不改锁文件；`check`、offline eval 与 package smoke 可重复运行 | quality/compatibility CI、`docs/RELEASE_CHECKLIST.md` |
+| M7-05 | [x] 已验证 | 生产与开发依赖树、许可证及两类 high-level audit 有真实检查入口，许可证清单漂移非零退出 | `check-licenses.mjs`、`license-check.test.ts`、quality CI、`THIRD_PARTY_NOTICES.md` |
+| M7-06 | [x] 已验证 | README、DEMO、TROUBLESHOOTING、CHANGELOG 与 release checklist 对安装、演示、安全和限制描述一致 | 对应版本化文档审查 |
+| M7-07 | [x] 已验证 | 工作树、tracked files、可访问历史、tarball 与运行产物扫描不含真实 secret 或不必要交付内容 | 提交前扫描、package smoke、`.gitignore` |
+
+M7 的 package smoke 只为安装后的 CLI 注入网络请求防线；npm 安装依赖本身仍按正常 npm registry/cache 语义运行。普通 CI 不设置 `EASYCODE_REAL_EVAL`、`EASYCODE_SMOKE` 或 Provider 凭据，不运行真实 API。M7 不执行 `npm publish`、tag 或 GitHub Release。

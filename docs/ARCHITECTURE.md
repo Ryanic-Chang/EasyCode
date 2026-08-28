@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M6 已在既有 Agent、Provider、工具、TUI 与安全恢复边界外增加只读事件指标和隔离评测系统。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M7 在既有 Agent、Provider、工具、TUI、安全恢复与隔离评测边界外，只增加 CLI 分流、可重复构建和最小交付包，不改变核心 Agent 行为。
 
 ## 2. 架构目标
 
@@ -320,7 +320,15 @@ TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 
 `src/main.ts` 是唯一 composition root：从环境变量读取配置，以真实 `process.cwd()` 创建工具上下文，以固定 `maxSteps` 创建 Agent Loop 和 Session，再启动 Ink。配置失败在 Ink 启动前通过稳定中文错误退出；CLI 由 `package.json` 的 `easycode` bin 指向带 shebang 的 `dist/main.js`。
 
-## 11. 测试与评测策略
+## 11. CLI 与交付包
+
+`src/main.ts` 仍是 composition root，但在读取 Provider 配置前先调用 `src/cli.ts` 的纯参数解析：无参数进入原 TUI，`--help` 与 `--version` 离线成功，其他输入以稳定中文错误和 exit code 2 拒绝。版本运行时从 package 根目录的 `package.json` 读取；测试同时约束 CLI 与 `CHANGELOG.md`，避免多处手工常量漂移。
+
+`npm run build` 只清理仓库根目录下经过显式校验的 `dist/`，再用锁定 TypeScript 编译无 source map、无声明的运行 JavaScript。`prepack` 复用该构建；`package.json.files` 是 tarball allowlist，源码、测试、评测、fixture、CI、内部协作文档和运行产物不会进入包。
+
+`scripts/package-smoke.mjs` 只依赖 Node.js 标准库：通过当前 `npm_execpath` 和 `process.execPath`、`shell:false` 生成并安装 tarball，检查生产依赖、bin/shebang、stdout/stderr/exit code 和无配置安全失败，并为 CLI 注入网络请求防线。所有 tarball、cache 和安装目录都位于单一系统临时根并在 `finally` 清理。
+
+## 12. 测试与评测策略
 
 测试分三层：
 
@@ -334,4 +342,4 @@ TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 
 JSON 报告以 `schemaVersion=1.0.0` 开始，包含安全复现元数据、每场景聚合指标与未聚合断言记录，以及对不含 `reportHash` payload 的 SHA-256。写入流程先在目标目录创建临时文件，再原子 rename；异常会清理临时文件。报告不是会话 trace：任务、模型文本、ToolCall arguments、ToolResult 正文、API key、Authorization、完整 URL query 和环境变量均不进入 schema。wall-clock duration 只用于观察，不作为离线确定性比较项。
 
-M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 断言不可重放、脱敏、确认及资源一致性；M6 断言 usage、精确指标、隔离 fixture、客观 grader、预算、原子报告、隐私与真实开关。默认测试和 offline eval 不访问网络、用户仓库或真实 API。
+M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 断言不可重放、脱敏、确认及资源一致性；M6 断言 usage、精确指标、隔离 fixture、客观 grader、预算、原子报告、隐私与真实开关；M7 断言 CLI、tarball allowlist、空目录安装、许可证漂移和三平台最低 Node.js 兼容性。默认测试和 offline eval 不访问网络、用户仓库或真实 API。

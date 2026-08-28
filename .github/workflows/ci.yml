@@ -9,16 +9,16 @@ permissions:
 
 jobs:
   quality:
-    name: 质量检查
+    name: 质量检查（Ubuntu / Node 24）
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -26,17 +26,60 @@ jobs:
       - name: 安装锁定依赖
         run: npm ci
 
-      - name: 类型检查
-        run: npm run typecheck
+      - name: 检查锁文件未被安装改写
+        run: git diff --exit-code -- package-lock.json
 
-      - name: 静态检查
-        run: npm run lint
-
-      - name: 单元测试
-        run: npm test
-
-      - name: 构建
-        run: npm run build
+      - name: 完整质量门
+        run: npm run check
 
       - name: 离线评测
         run: npm run eval:offline
+
+      - name: 最小安装包 smoke
+        run: npm run test:package
+
+      - name: 生产依赖许可证
+        run: npm run license:check
+
+      - name: 完整依赖树
+        run: npm ls --all
+
+      - name: 高危漏洞审计
+        run: npm audit --audit-level=high
+
+      - name: 生产依赖高危漏洞审计
+        run: npm audit --omit=dev --audit-level=high
+
+  compatibility:
+    name: 兼容性（${{ matrix.os }} / Node 22）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装锁定依赖
+        run: npm ci
+
+      - name: 检查锁文件未被安装改写
+        run: git diff --exit-code -- package-lock.json
+
+      - name: 完整质量门
+        run: npm run check
+
+      - name: 离线评测
+        run: npm run eval:offline
+
+      - name: 最小安装包 smoke
+        run: npm run test:package

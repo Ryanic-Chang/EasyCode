@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M0–M6 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI、安全恢复边界，以及离线确定性评测与事件指标；当前不得提前实现 session 持久化、远程 telemetry、dashboard 或多 Provider 路由。
+- M0–M7 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI、安全恢复边界、离线确定性评测与 v0.1.0 交付面；后续仍不得擅自实现 session 持久化、远程 telemetry、dashboard 或多 Provider 路由。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档
@@ -54,6 +54,7 @@
 - 依赖必须职责单一、维护活跃、许可证可接受，并在 `package-lock.json` 中锁定。
 - 不得以“以后可能需要”为理由预装 SDK、UI 库、schema 库或 Agent Framework。
 - 包管理器统一使用 npm；CI 使用 `npm ci`。
+- 生产依赖变化时必须审查许可证并更新 `docs/THIRD_PARTY_NOTICES.md`；不得跳过清单漂移检查。
 
 ## 测试与验证
 
@@ -65,6 +66,8 @@
 - `npm test`、`npm run eval:offline` 与 `npm run eval:real` 是三种不同证据：前两者不得联网，真实评测必须显式设置 `EASYCODE_REAL_EVAL=1`，且不得进入普通 CI。
 - `evals/` 中的固定 fixture 与场景定义可以入库；运行报告只写入被忽略的 `.easycode/evals/`。报告不得包含消息正文、ToolCall arguments、ToolResult 正文、凭据、完整 query 或环境变量。
 - offline eval 必须复制 fixture 到独立临时 workspace，使用客观 grader；不能把 `complete` 或自然语言关键词单独判为成功。
+- package smoke 必须使用临时空目录、隔离 npm cache 和安装后的 bin，禁止 `shell:true`，并在结束后清理全部临时产物。
+- `npm publish`、Git tag 与 GitHub Release 不属于普通代码交付；没有针对该动作的明确授权不得执行。
 
 ## Git 与变更纪律
 

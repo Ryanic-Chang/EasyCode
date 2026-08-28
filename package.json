@@ -1,26 +1,48 @@
 {
   "name": "easycode",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "中文优先、可解释、可验证的轻量 Coding Agent",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ryanic-Chang/EasyCode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ryanic-Chang/EasyCode/issues"
+  },
+  "homepage": "https://github.com/Ryanic-Chang/EasyCode#readme",
   "type": "module",
   "bin": {
     "easycode": "./dist/main.js"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "docs/SECURITY.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/THIRD_PARTY_NOTICES.md"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests evals",
+    "lint": "biome check src tests evals scripts",
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:smoke": "vitest run tests/smoke/openai-compatible.smoke.test.ts",
     "eval:build": "tsc -p tsconfig.eval.json",
     "eval:offline": "npm run eval:build --silent && node .easycode/eval-dist/evals/cli/offline.js",
     "eval:real": "npm run eval:build --silent && node .easycode/eval-dist/evals/cli/real.js",
-    "check": "tsc --noEmit && biome check src tests evals && vitest run && tsc -p tsconfig.build.json"
+    "test:package": "node scripts/package-smoke.mjs",
+    "license:check": "node scripts/check-licenses.mjs",
+    "license:update": "node scripts/check-licenses.mjs --write",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run license:check"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
