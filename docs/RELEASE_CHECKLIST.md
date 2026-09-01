@@ -1,4 +1,4 @@
-# v0.1.0 交付检查清单
+# v0.2.0 交付检查清单
 
 ## 本地检查
 
@@ -12,7 +12,7 @@
 
 ## Git 与 CI
 
-- [ ] 只创建聚焦提交 `chore(release): harden v0.1.0 delivery`；
+- [ ] 只创建聚焦提交 `feat(demo): polish real-provider experience`；
 - [ ] 普通 push `origin main`，不 amend、rebase、force push；
 - [ ] Ubuntu Node.js 24 quality job 通过；
 - [ ] Windows、Ubuntu、macOS Node.js 22 compatibility jobs 全部通过；

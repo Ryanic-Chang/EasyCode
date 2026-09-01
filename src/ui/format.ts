@@ -56,10 +56,29 @@ export function summarizeToolCall(call: ToolCall): string {
             .map((item) => summarizeText(item, 40))
             .join(" ")
         : "";
-      return `${executable}${args.length > 0 ? ` ${args}` : ""} · ${stringArgument(call, "cwd")}`;
+      const stdin = call.arguments.stdin;
+      const stdinBytes = typeof stdin === "string" ? Buffer.byteLength(stdin, "utf8") : 0;
+      return `${executable}${args.length > 0 ? ` ${args}` : ""} · ${stringArgument(call, "cwd")}${stdinBytes > 0 ? ` · stdin ${stdinBytes} bytes` : ""}`;
     }
     default:
       return "参数已隐藏";
+  }
+}
+
+export function toolDisplayName(name: string): string {
+  switch (name) {
+    case "list_directory":
+      return "列出目录";
+    case "search_files":
+      return "搜索文件";
+    case "read_file":
+      return "读取文件";
+    case "apply_patch":
+      return "修改文件";
+    case "run_command":
+      return "执行命令";
+    default:
+      return safeDisplayLabel(name, "工具");
   }
 }
 

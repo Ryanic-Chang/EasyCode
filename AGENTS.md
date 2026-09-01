@@ -8,7 +8,7 @@
 
 - EasyCode 是独立实现的轻量 Coding Agent，不复制、改装或包装其他 Agent 项目源码。
 - 不得引入 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 等 Agent Framework。
-- M0–M7 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI、安全恢复边界、离线确定性评测与 v0.1.0 交付面；后续仍不得擅自实现 session 持久化、远程 telemetry、dashboard 或多 Provider 路由。
+- M0–M7 与 D1 已完成：仓库已有可验证 Agent Loop、OpenAI-compatible Provider、受控代码工具、中文 Ink TUI、安全恢复边界、离线/可选真实评测与 v0.2.0 演示面；后续仍不得擅自实现 session 持久化、远程 telemetry、dashboard 或多 Provider 路由。
 - 新功能必须对应 `docs/ROADMAP.md` 中的当前里程碑；不得借机扩大范围。
 
 ## 语言与文档

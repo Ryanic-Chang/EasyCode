@@ -149,5 +149,7 @@ describe("AgentSession", () => {
     expect(DEFAULT_SYSTEM_PROMPT).toContain("中文优先");
     expect(DEFAULT_SYSTEM_PROMPT).toContain("apply_patch");
     expect(DEFAULT_SYSTEM_PROMPT).toContain("不得声称未实际执行的验证通过");
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("无可选参数时也使用 {}");
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("未授权或硬拒绝操作时不要试探调用工具");
   });
 });

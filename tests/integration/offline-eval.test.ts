@@ -43,4 +43,19 @@ describe("M6 offline eval", () => {
     }
     expect(await snapshotFiles(fixturesRoot)).toEqual(before);
   });
+
+  it("真实模式只替换真实预算与 maxSteps，不改变 fixture 和 grader", async () => {
+    const scenario = EVALUATION_SCENARIOS[0];
+    if (scenario === undefined) {
+      throw new Error("缺少评测场景");
+    }
+    const result = await runScenario(scenario, {
+      fixturesRoot: path.join(process.cwd(), "evals", "fixtures", "v1"),
+      model: "scripted-real-shape",
+      provider: new ScriptedEvalProvider(scenario.createOfflineScript(process.execPath)),
+      mode: "real",
+    });
+    expect(result.passed).toBe(true);
+    expect(result.maxSteps).toBe(scenario.realMaxSteps);
+  });
 });

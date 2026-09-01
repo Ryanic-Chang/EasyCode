@@ -160,6 +160,7 @@ export class OpenAICompatibleProvider implements Provider {
   readonly name = "openai-compatible";
   readonly #apiKey: string;
   readonly #endpoint: string;
+  readonly #enableThinking: boolean | undefined;
   readonly #fetch: FetchTransport;
   readonly #retry: RetryPolicy;
   readonly #requestTimeoutMs: number;
@@ -170,13 +171,17 @@ export class OpenAICompatibleProvider implements Provider {
   readonly #logger: SafeLogger;
   readonly #redactor: Redactor;
 
-  constructor(config: Pick<EasyCodeConfig, "apiKey" | "baseUrl">, options: OpenAICompatibleProviderOptions = {}) {
+  constructor(
+    config: Pick<EasyCodeConfig, "apiKey" | "baseUrl" | "enableThinking">,
+    options: OpenAICompatibleProviderOptions = {},
+  ) {
     const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 120_000) {
       throw new RangeError("requestTimeoutMs 必须是 1–120000 的整数");
     }
     this.#apiKey = config.apiKey;
     this.#endpoint = endpointFor(new URL(config.baseUrl.toString()));
+    this.#enableThinking = config.enableThinking;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#retry = new RetryPolicy(options.retry ?? DEFAULT_RETRY, {
       ...(options.random === undefined ? {} : { random: options.random }),
@@ -196,7 +201,9 @@ export class OpenAICompatibleProvider implements Provider {
 
     let body: string;
     try {
-      body = createChatCompletionsBody(request);
+      body = createChatCompletionsBody(request, {
+        ...(this.#enableThinking === undefined ? {} : { enableThinking: this.#enableThinking }),
+      });
     } catch {
       yield { type: "error", error: ERRORS.protocol };
       return;

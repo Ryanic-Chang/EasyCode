@@ -8,6 +8,8 @@
 
 确认 key、模型名和账号权限属于同一服务；确认 `EASYCODE_BASE_URL` 是服务的 OpenAI-compatible API 前缀，而不是完整 `/chat/completions` 地址。401/403 不自动重试。不要把 Authorization header、完整 URL query 或响应正文粘贴到公开日志。
 
+百炼/Qwen Function Calling 演示建议设置 `EASYCODE_ENABLE_THINKING=false`。该值区分大小写且只接受 `true` 或 `false`；`0`、`TRUE`、空字符串和带空格值都会安全拒绝。其他 OpenAI-compatible 服务可不配置，此时请求完全不含 `enable_thinking`。
+
 ## 限流、服务错误和 timeout
 
 连接成功并开始流式输出前，408/409/429/5xx、network 和 timeout 可有界重试；流开始后不会重放。可在允许范围内调整 `EASYCODE_MAX_RETRIES`、`EASYCODE_RETRY_BASE_DELAY_MS` 和 `EASYCODE_REQUEST_TIMEOUT_MS`。重试可能重复计费，不保证服务端幂等。

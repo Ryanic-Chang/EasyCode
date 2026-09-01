@@ -2,12 +2,13 @@ import { Box, Text, useApp, useInput, usePaste, useWindowSize } from "ink";
 import { useEffect, useReducer, useRef } from "react";
 
 import type { AgentRunner } from "../agent/session.js";
-import { safeDisplayLabel, terminationReasonText } from "./format.js";
+import { safeDisplayLabel, terminationReasonText, toolDisplayName } from "./format.js";
 import { EMPTY_INPUT, type InputState, inputReducer, inputValue } from "./input.js";
 import { INITIAL_UI_STATE, type TranscriptItem, type UiState, uiReducer } from "./model.js";
 
 export interface EasyCodeAppProps {
   readonly runner: AgentRunner;
+  readonly version?: string;
   readonly model: string;
   readonly workspace: string;
   readonly colorEnabled: boolean;
@@ -19,6 +20,7 @@ export interface EasyCodeAppProps {
 export interface EasyCodeViewProps {
   readonly state: UiState;
   readonly input: InputState;
+  readonly version?: string;
   readonly model: string;
   readonly workspace: string;
   readonly colorEnabled: boolean;
@@ -35,7 +37,7 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
       return (
         <Box flexDirection="column" marginTop={1}>
           <Text bold {...textColor(colorEnabled, "blue")}>
-            你
+            &gt; 你
           </Text>
           <Text wrap="hard">{item.task}</Text>
         </Box>
@@ -43,7 +45,7 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
     case "turn":
       return (
         <Text bold {...textColor(colorEnabled, "cyan")}>
-          第 {item.step} 轮
+          - 分析轮次 {item.step}
         </Text>
       );
     case "retry":
@@ -56,9 +58,14 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
       const label = item.status === "pending" ? "确认" : item.status === "approved" ? "已允许" : "已拒绝";
       const color = item.status === "pending" ? "yellow" : item.status === "approved" ? "green" : "red";
       return (
-        <Box flexDirection="column">
+        <Box
+          flexDirection="column"
+          borderStyle={item.status === "pending" ? "single" : undefined}
+          borderColor={item.status === "pending" && colorEnabled ? "yellow" : undefined}
+          paddingX={item.status === "pending" ? 1 : 0}
+        >
           <Text wrap="hard" {...textColor(colorEnabled, color)}>
-            [{label}] {item.toolName}
+            [{label}] {toolDisplayName(item.toolName)}
           </Text>
           <Text wrap="hard">{item.actionSummary}</Text>
           {item.status === "pending" ? (
@@ -80,7 +87,7 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
       return (
         <Box flexDirection="column">
           <Text wrap="hard" {...textColor(colorEnabled, statusColor)}>
-            [{label}] {item.toolName} · {item.detail}
+            [{label}] {toolDisplayName(item.toolName)} · {item.detail}
           </Text>
           {item.result === undefined ? null : (
             <Text dimColor wrap="hard">
@@ -98,9 +105,16 @@ function TranscriptLine({ item, colorEnabled }: { readonly item: TranscriptItem;
       );
     case "complete":
       return (
-        <Text {...textColor(colorEnabled, item.reason === "complete" ? "green" : "yellow")}>
-          [{terminationReasonText(item.reason)}]
-        </Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold {...textColor(colorEnabled, item.reason === "complete" ? "green" : "yellow")}>
+            [{terminationReasonText(item.reason)}]
+          </Text>
+          <Text dimColor>
+            {item.rounds} rounds · 工具成功 {item.toolSuccesses} · 失败 {item.toolFailures} · tokens{" "}
+            {item.totalTokens ?? "unknown"}
+            {item.durationMs === undefined ? "" : ` · ${(item.durationMs / 1000).toFixed(1)} s`}
+          </Text>
+        </Box>
       );
   }
 }
@@ -112,7 +126,15 @@ function cursorText(input: InputState): { readonly before: string; readonly afte
   };
 }
 
-export function EasyCodeView({ state, input, model, workspace, colorEnabled, columns }: EasyCodeViewProps) {
+export function EasyCodeView({
+  state,
+  input,
+  version = "开发版",
+  model,
+  workspace,
+  colorEnabled,
+  columns,
+}: EasyCodeViewProps) {
   const draft = cursorText(input);
   const phaseText =
     state.phase === "running"
@@ -126,19 +148,25 @@ export function EasyCodeView({ state, input, model, workspace, colorEnabled, col
 
   return (
     <Box flexDirection="column" width={Math.max(20, columns)}>
-      <Text bold {...textColor(colorEnabled, "cyan")}>
-        EasyCode
-      </Text>
-      <Text dimColor wrap="hard">
-        模型 {safeDisplayLabel(model, "未知")} · workspace {safeDisplayLabel(workspace, "workspace")}
-      </Text>
-      <Text {...textColor(colorEnabled, phaseColor)}>[{phaseText}]</Text>
+      <Box flexDirection="column" borderStyle="single" paddingX={1}>
+        <Box justifyContent="space-between">
+          <Text bold {...textColor(colorEnabled, "cyan")}>
+            EasyCode v{safeDisplayLabel(version, "未知")}
+          </Text>
+          <Text bold {...textColor(colorEnabled, phaseColor)}>
+            [{phaseText}]
+          </Text>
+        </Box>
+        <Text dimColor wrap="hard">
+          {safeDisplayLabel(model, "未知")} · {safeDisplayLabel(workspace, "workspace")}
+        </Text>
+      </Box>
 
       {state.transcript.map((item) => (
         <TranscriptLine key={item.id} item={item} colorEnabled={colorEnabled} />
       ))}
 
-      <Box marginTop={1}>
+      <Box marginTop={1} borderStyle="single" paddingX={1} minHeight={3}>
         {state.phase === "idle" ? (
           <Text wrap="hard">
             › {draft.before}
@@ -157,6 +185,7 @@ export function EasyCodeView({ state, input, model, workspace, colorEnabled, col
 
 export function EasyCodeApp({
   runner,
+  version = "开发版",
   model,
   workspace,
   colorEnabled,
@@ -215,7 +244,7 @@ export function EasyCodeApp({
     controllerRef.current = controller;
     activeUiRunIdRef.current = uiRunId;
     phaseRef.current = "running";
-    dispatch({ type: "submit", runId: uiRunId, task });
+    dispatch({ type: "submit", runId: uiRunId, task, at: performance.now() });
     updateInput({ type: "clear" });
 
     void (async () => {
@@ -235,7 +264,7 @@ export function EasyCodeApp({
             activeApprovalIdRef.current = undefined;
             phaseRef.current = "idle";
           }
-          dispatch({ type: "agent_event", runId: uiRunId, event: sessionEvent.event });
+          dispatch({ type: "agent_event", runId: uiRunId, event: sessionEvent.event, at: performance.now() });
         }
       } catch {
         if (mountedRef.current) {
@@ -318,6 +347,7 @@ export function EasyCodeApp({
     <EasyCodeView
       state={state}
       input={input}
+      version={version}
       model={model}
       workspace={workspace}
       colorEnabled={colorEnabled}

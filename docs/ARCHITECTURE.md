@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。M7 在既有 Agent、Provider、工具、TUI、安全恢复与隔离评测边界外，只增加 CLI 分流、可重复构建和最小交付包，不改变核心 Agent 行为。
+本文定义 EasyCode 的目标架构、模块边界和关键运行时契约。D1 在既有 Agent、Provider、工具、安全恢复与隔离评测边界内，只调优真实 Provider 兼容、提示词、评测预算和 TUI 投影，不扩展产品能力。
 
 ## 2. 架构目标
 
@@ -343,3 +343,10 @@ TUI 是 `AgentEvent` 的轻量投影，而不是新的业务层：
 JSON 报告以 `schemaVersion=1.0.0` 开始，包含安全复现元数据、每场景聚合指标与未聚合断言记录，以及对不含 `reportHash` payload 的 SHA-256。写入流程先在目标目录创建临时文件，再原子 rename；异常会清理临时文件。报告不是会话 trace：任务、模型文本、ToolCall arguments、ToolResult 正文、API key、Authorization、完整 URL query 和环境变量均不进入 schema。wall-clock duration 只用于观察，不作为离线确定性比较项。
 
 M1 的最低行为矩阵以 `docs/ACCEPTANCE.md` 中八个场景为准。M2 以本地 fixture 断言 wire/SSE；M3 以临时 workspace 断言工具闭环；M4 使用内存 Ink 断言交互；M5 断言不可重放、脱敏、确认及资源一致性；M6 断言 usage、精确指标、隔离 fixture、客观 grader、预算、原子报告、隐私与真实开关；M7 断言 CLI、tarball allowlist、空目录安装、许可证漂移和三平台最低 Node.js 兼容性。默认测试和 offline eval 不访问网络、用户仓库或真实 API。
+
+## 13. D1 真实展示投影
+
+- 配置层严格解析可选 `EASYCODE_ENABLE_THINKING`；Provider 只有在值存在时才把 `enable_thinking` 写入兼容请求，厂商扩展不会污染通用契约。
+- Qwen continuation chunk 的空 ToolCall 身份被归一化为“本 chunk 未提供”，arguments 仍按 index 独立拼接；最终 ToolCall 继续接受 Agent 的完整性与 schema 校验。
+- offline 场景预算保持不变；real 模式可声明更符合累计上下文和工具 schema 成本的 `realMaxSteps` / `realBudget`，grader 与 fixture 隔离逻辑不变。
+- TUI 是 `AgentEvent` 的纯投影：顶部状态栏、时间线、授权框和完成统计均不反向影响 Agent；stdin 只投影 byte 数。

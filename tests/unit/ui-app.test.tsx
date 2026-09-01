@@ -70,7 +70,8 @@ describe("中文 Ink TUI", () => {
     const instance = render(app(new ScriptedRunner([])));
     const frame = instance.lastFrame() ?? "";
     expect(frame).toContain("EasyCode");
-    expect(frame).toContain("模型 fake-model · workspace fixture");
+    expect(frame).toContain("EasyCode v开发版");
+    expect(frame).toContain("fake-model · fixture");
     expect(frame).toContain("[等待输入]");
     expect(frame).toContain("› │");
     expect(frame).not.toContain("快捷键");
@@ -125,7 +126,7 @@ describe("中文 Ink TUI", () => {
     await vi.waitFor(() => expect(instance.lastFrame()).toContain("[等待确认]"));
     expect(instance.lastFrame()).toContain("一次性授权");
     instance.stdin.write(input);
-    await vi.waitFor(() => expect(instance.lastFrame()).toContain(`[${label}] run_command`));
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain(`[${label}] 执行命令`));
     expect(runner.approvals).toEqual([{ approvalId: "approval-ui", approved }]);
   });
 
@@ -240,9 +241,10 @@ describe("中文 Ink TUI", () => {
     instance.stdin.write("\r");
     await vi.waitFor(() => expect(instance.lastFrame()).toContain("[任务完成]"));
     const frame = instance.lastFrame() ?? "";
-    expect(frame).toContain("[完成] read_file · src/main.ts · 全部");
+    expect(frame).toContain("[完成] 读取文件 · src/main.ts · 全部");
     expect(frame).toContain("读取 1–20 行");
-    expect(frame).toContain("[失败] run_command · node · .");
+    expect(frame).toContain("[失败] 执行命令 · node · .");
+    expect(frame).toContain("1 rounds · 工具成功 1 · 失败 1");
     expect(frame).toContain("test failed");
     expect(frame).not.toContain("完整文件内容不展示");
   });

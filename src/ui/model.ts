@@ -49,7 +49,26 @@ export type TranscriptItem =
       readonly status: "running" | "success" | "failure";
     }
   | { readonly id: string; readonly type: "error"; readonly error: AgentError }
-  | { readonly id: string; readonly type: "complete"; readonly reason: AgentTerminationReason };
+  | {
+      readonly id: string;
+      readonly type: "complete";
+      readonly reason: AgentTerminationReason;
+      readonly rounds: number;
+      readonly toolSuccesses: number;
+      readonly toolFailures: number;
+      readonly totalTokens?: number;
+      readonly durationMs?: number;
+    };
+
+export interface UiRunStats {
+  readonly rounds: number;
+  readonly toolSuccesses: number;
+  readonly toolFailures: number;
+  readonly usageRounds: number;
+  readonly totalTokens: number;
+  readonly usageTotalsComplete: boolean;
+  readonly startedAtMs?: number;
+}
 
 export interface UiState {
   readonly phase: UiPhase;
@@ -59,18 +78,27 @@ export interface UiState {
   readonly currentError?: AgentError;
   readonly terminationReason?: AgentTerminationReason;
   readonly terminalSeen: boolean;
+  readonly runStats: UiRunStats;
 }
 
 export type UiAction =
-  | { readonly type: "submit"; readonly runId: number; readonly task: string }
+  | { readonly type: "submit"; readonly runId: number; readonly task: string; readonly at?: number }
   | { readonly type: "cancelling"; readonly runId: number }
-  | { readonly type: "agent_event"; readonly runId: number; readonly event: AgentEvent };
+  | { readonly type: "agent_event"; readonly runId: number; readonly event: AgentEvent; readonly at?: number };
 
 export const INITIAL_UI_STATE: UiState = {
   phase: "idle",
   currentStep: 0,
   transcript: [],
   terminalSeen: false,
+  runStats: {
+    rounds: 0,
+    toolSuccesses: 0,
+    toolFailures: 0,
+    usageRounds: 0,
+    totalTokens: 0,
+    usageTotalsComplete: true,
+  },
 };
 
 function bounded(items: readonly TranscriptItem[]): readonly TranscriptItem[] {
@@ -119,6 +147,15 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         { id: `run-${action.runId}-user`, type: "user", task: action.task },
       ]),
       terminalSeen: false,
+      runStats: {
+        rounds: 0,
+        toolSuccesses: 0,
+        toolFailures: 0,
+        usageRounds: 0,
+        totalTokens: 0,
+        usageTotalsComplete: true,
+        ...(action.at === undefined ? {} : { startedAtMs: action.at }),
+      },
     };
   }
 
@@ -135,6 +172,7 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
       return {
         ...state,
         currentStep: event.step,
+        runStats: { ...state.runStats, rounds: event.step },
         transcript: bounded([
           ...finalizeAssistants(state.transcript),
           { id: `run-${action.runId}-turn-${event.step}`, type: "turn", step: event.step },
@@ -146,7 +184,15 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         transcript: appendAssistantDelta(state.transcript, action.runId, event.step, event.delta),
       };
     case "usage":
-      return state;
+      return {
+        ...state,
+        runStats: {
+          ...state.runStats,
+          usageRounds: state.runStats.usageRounds + 1,
+          totalTokens: state.runStats.totalTokens + (event.usage.totalTokens ?? 0),
+          usageTotalsComplete: state.runStats.usageTotalsComplete && event.usage.totalTokens !== undefined,
+        },
+      };
     case "provider_retry":
       return {
         ...state,
@@ -210,16 +256,39 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
       };
     case "tool_end": {
       const id = `run-${action.runId}-tool-${event.result.toolCallId}`;
+      const existing = state.transcript.some((item) => item.id === id && item.type === "tool");
+      const updated = state.transcript.map((item) =>
+        item.id === id && item.type === "tool"
+          ? {
+              ...item,
+              result: summarizeToolResult(event.result),
+              status: event.result.isError ? ("failure" as const) : ("success" as const),
+            }
+          : item,
+      );
       return {
         ...state,
-        transcript: state.transcript.map((item) =>
-          item.id === id && item.type === "tool"
-            ? {
-                ...item,
-                result: summarizeToolResult(event.result),
-                status: event.result.isError ? "failure" : "success",
-              }
-            : item,
+        runStats: {
+          ...state.runStats,
+          toolSuccesses: state.runStats.toolSuccesses + (event.result.isError ? 0 : 1),
+          toolFailures: state.runStats.toolFailures + (event.result.isError ? 1 : 0),
+        },
+        transcript: bounded(
+          existing
+            ? updated
+            : [
+                ...updated,
+                {
+                  id,
+                  type: "tool",
+                  step: event.step,
+                  toolCallId: event.result.toolCallId,
+                  toolName: event.result.toolName,
+                  detail: "未执行",
+                  result: summarizeToolResult(event.result),
+                  status: event.result.isError ? "failure" : "success",
+                },
+              ],
         ),
       };
     }
@@ -240,7 +309,20 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
         currentStep: event.step,
         transcript: bounded([
           ...finalizeAssistants(state.transcript),
-          { id: `run-${action.runId}-complete`, type: "complete", reason: event.reason },
+          {
+            id: `run-${action.runId}-complete`,
+            type: "complete",
+            reason: event.reason,
+            rounds: state.runStats.rounds,
+            toolSuccesses: state.runStats.toolSuccesses,
+            toolFailures: state.runStats.toolFailures,
+            ...(state.runStats.usageTotalsComplete && state.runStats.usageRounds === state.runStats.rounds
+              ? { totalTokens: state.runStats.totalTokens }
+              : {}),
+            ...(state.runStats.startedAtMs === undefined || action.at === undefined
+              ? {}
+              : { durationMs: Math.max(0, action.at - state.runStats.startedAtMs) }),
+          },
         ]),
         terminationReason: event.reason,
         terminalSeen: true,

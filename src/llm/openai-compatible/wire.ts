@@ -92,11 +92,16 @@ function mapMessage(message: ProviderMessage): JsonRecord {
   }
 }
 
-export function createChatCompletionsBody(request: ProviderRequest): string {
+export interface ChatCompletionsBodyOptions {
+  readonly enableThinking?: boolean;
+}
+
+export function createChatCompletionsBody(request: ProviderRequest, options: ChatCompletionsBodyOptions = {}): string {
   const body = {
     model: request.model,
     stream: true,
     stream_options: { include_usage: true },
+    ...(options.enableThinking === undefined ? {} : { enable_thinking: options.enableThinking }),
     messages: request.messages.map(mapMessage),
     ...(request.tools.length === 0
       ? {}

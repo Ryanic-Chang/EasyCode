@@ -21,6 +21,16 @@ describe("TUI 安全摘要", () => {
     expect(summary).not.toContain("SECRET");
   });
 
+  it("命令摘要只显示 stdin 字节数，不显示正文", () => {
+    const summary = summarizeToolCall({
+      id: "stdin-call",
+      name: "run_command",
+      arguments: { executable: "fixture.exe", stdin: "SENSITIVE_STDIN\n" },
+    });
+    expect(summary).toContain("stdin 16 bytes");
+    expect(summary).not.toContain("SENSITIVE_STDIN");
+  });
+
   it("对长文本保留首尾、省略中间并脱敏", () => {
     const summary = summarizeText(`begin ${"x".repeat(500)} sk-example_secret_123456789 end`, 80);
     expect(summary.length).toBeLessThanOrEqual(81);

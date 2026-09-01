@@ -41,6 +41,8 @@ export interface EvaluationScenario {
   readonly allowedModifiedFiles: readonly string[];
   readonly assertions: readonly ObjectiveAssertion[];
   readonly budget: ResourceBudget;
+  readonly realMaxSteps?: number;
+  readonly realBudget?: ResourceBudget;
   readonly allowedCommands: readonly AllowedCommand[];
   readonly realEligible: boolean;
   createOfflineScript(nodeExecutable: string): readonly (readonly ProviderEvent[])[];

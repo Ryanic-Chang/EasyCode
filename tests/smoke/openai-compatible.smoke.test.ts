@@ -21,6 +21,13 @@ describe("OpenAI-compatible 真实服务 smoke", () => {
     }
 
     expect(events.some((event) => event.type === "text_delta" && event.delta.length > 0)).toBe(true);
-    expect(events.at(-1)).toEqual({ type: "finish", reason: "stop" });
+    const finishIndex = events.findIndex((event) => event.type === "finish");
+    expect(events[finishIndex]).toEqual({ type: "finish", reason: "stop" });
+    expect(events.slice(finishIndex + 1).every((event) => event.type === "usage")).toBe(true);
+    expect(events.filter((event) => event.type === "usage")).toHaveLength(1);
+    const usage = events.find((event) => event.type === "usage");
+    process.stdout.write(
+      `EasyCode smoke：finish=stop tokens=${usage?.type === "usage" ? (usage.usage.totalTokens ?? "unknown") : "unknown"}\n`,
+    );
   });
 });

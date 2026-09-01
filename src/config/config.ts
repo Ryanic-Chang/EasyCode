@@ -8,6 +8,7 @@ export const CONFIG_ENV_NAMES = [
   "EASYCODE_MAX_RETRIES",
   "EASYCODE_RETRY_BASE_DELAY_MS",
   "EASYCODE_REQUEST_TIMEOUT_MS",
+  "EASYCODE_ENABLE_THINKING",
 ] as const;
 
 export type EasyCodeEnvironment = Readonly<Record<string, string | undefined>>;
@@ -19,16 +20,34 @@ export interface EasyCodeConfig {
   readonly maxRetries: number;
   readonly retryBaseDelayMs: number;
   readonly requestTimeoutMs: number;
+  readonly enableThinking?: boolean;
 }
 
 export class ConfigError extends Error {
-  readonly code: "missing_value" | "invalid_url" | "unsupported_scheme" | "invalid_integer";
+  readonly code: "missing_value" | "invalid_url" | "unsupported_scheme" | "invalid_integer" | "invalid_boolean";
 
   constructor(code: ConfigError["code"], message: string) {
     super(message);
     this.name = "ConfigError";
     this.code = code;
   }
+}
+
+function optionalBoolean(
+  environment: EasyCodeEnvironment,
+  name: (typeof CONFIG_ENV_NAMES)[number],
+): boolean | undefined {
+  const raw = environment[name];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  throw new ConfigError("invalid_boolean", `${name} 只接受 true 或 false`);
 }
 
 function requireValue(environment: EasyCodeEnvironment, name: (typeof CONFIG_ENV_NAMES)[number]): string {
@@ -96,6 +115,15 @@ export function loadEasyCodeConfig(environment: EasyCodeEnvironment): EasyCodeCo
     1_000,
     120_000,
   );
+  const enableThinking = optionalBoolean(environment, "EASYCODE_ENABLE_THINKING");
 
-  return { apiKey, baseUrl, model, maxRetries, retryBaseDelayMs, requestTimeoutMs };
+  return {
+    apiKey,
+    baseUrl,
+    model,
+    maxRetries,
+    retryBaseDelayMs,
+    requestTimeoutMs,
+    ...(enableThinking === undefined ? {} : { enableThinking }),
+  };
 }

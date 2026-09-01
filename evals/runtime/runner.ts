@@ -1,10 +1,11 @@
 import * as path from "node:path";
 import type { AgentTerminationReason } from "../../src/agent/events.js";
 import { AgentLoop } from "../../src/agent/loop.js";
+import { DEFAULT_SYSTEM_PROMPT } from "../../src/agent/session.js";
 import type { Provider } from "../../src/llm/provider.js";
 import { MetricsCollector, type MonotonicClock } from "../../src/metrics/collector.js";
 import { createCodingToolRegistry } from "../../src/tools/coding-tools.js";
-import type { EvaluationScenario, ScenarioEvaluationResult } from "../core/types.js";
+import type { EvaluationMode, EvaluationScenario, ScenarioEvaluationResult } from "../core/types.js";
 import { ExactEvalApprovalGate } from "./approval.js";
 import { createIsolatedFixture, snapshotFiles } from "./fixture.js";
 import { gradeScenario } from "./grader.js";
@@ -13,6 +14,7 @@ export interface ScenarioRunOptions {
   readonly fixturesRoot: string;
   readonly model: string;
   readonly provider: Provider;
+  readonly mode?: EvaluationMode;
   readonly clock?: MonotonicClock;
   readonly nodeExecutable?: string;
 }
@@ -22,6 +24,14 @@ export async function runScenario(
   options: ScenarioRunOptions,
 ): Promise<ScenarioEvaluationResult> {
   const nodeExecutable = options.nodeExecutable ?? process.execPath;
+  const effectiveScenario =
+    options.mode === "real"
+      ? {
+          ...scenario,
+          maxSteps: scenario.realMaxSteps ?? scenario.maxSteps,
+          budget: scenario.realBudget ?? scenario.budget,
+        }
+      : scenario;
   const sourceRoot = path.join(options.fixturesRoot, scenario.fixture);
   const sourceBefore = await snapshotFiles(sourceRoot);
   const fixture = await createIsolatedFixture(options.fixturesRoot, scenario.fixture);
@@ -33,7 +43,7 @@ export async function runScenario(
       tools: createCodingToolRegistry(),
       model: options.model,
       cwd: fixture.root,
-      maxSteps: scenario.maxSteps,
+      maxSteps: effectiveScenario.maxSteps,
       approvalGate: new ExactEvalApprovalGate(scenario.allowedCommands, nodeExecutable, fixture.root, before),
       approvalIdFactory: (() => {
         let next = 0;
@@ -51,7 +61,10 @@ export async function runScenario(
             )
             .join("；")}`;
     for await (const event of agent.run([
-      { role: "system", content: `你正在隔离的 synthetic fixture 中接受客观评测。${commandPolicy}` },
+      {
+        role: "system",
+        content: `${DEFAULT_SYSTEM_PROMPT}\n你正在隔离的 synthetic fixture 中接受客观评测。${commandPolicy}`,
+      },
       { role: "user", content: scenario.task },
     ])) {
       metrics.consume(event);
@@ -62,7 +75,7 @@ export async function runScenario(
     const metricSnapshot = metrics.snapshot();
     const sourceAfter = await snapshotFiles(sourceRoot);
     const grade = await gradeScenario({
-      scenario,
+      scenario: effectiveScenario,
       workspace: fixture.root,
       before,
       sourceBefore,
@@ -75,7 +88,7 @@ export async function runScenario(
       scenarioId: scenario.id,
       scenarioVersion: scenario.version,
       fixtureVersion: scenario.fixtureVersion,
-      maxSteps: scenario.maxSteps,
+      maxSteps: effectiveScenario.maxSteps,
       passed: grade.passed,
       terminationReason,
       ...(metricSnapshot.errorCode === undefined ? {} : { errorCode: metricSnapshot.errorCode }),

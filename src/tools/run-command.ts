@@ -281,7 +281,8 @@ async function executeProcess(input: RunCommandInput, cwd: string, signal: Abort
 
 export class RunCommandTool implements Tool<RunCommandInput> {
   readonly name = "run_command";
-  readonly description = "以 executable + argv、shell:false 在 workspace 内执行有时限和输出上限的命令。";
+  readonly description =
+    "以 executable + args、shell:false 在 workspace 内执行单个程序；禁止管道、重定向和 shell 包装，需要输入时使用 stdin 字段。每次执行都需单独确认。";
   readonly inputSchema = {
     type: "object",
     additionalProperties: false,

@@ -1,41 +1,44 @@
-# EasyCode v0.1.0 离线演示
+# EasyCode v0.2.0 两分钟演示
 
-## 目标
+## 0:00–0:20：一句话与架构
 
-默认演示不需要 API key、网络或费用。它使用 scripted Provider、版本化 synthetic fixture、真实 Agent Loop 与真实受控工具，成功由客观 grader 判定，而不是由自然语言回答判定。
+EasyCode 是中文优先、独立实现的轻量 Coding Agent。展示 README 首屏架构：TUI 把任务交给 Session 与 Agent Loop；Loop 流式请求 Provider、调用五个受控工具，再把结果写回上下文继续推理。强调没有使用 Agent Framework。
 
-## 环境
-
-- Node.js >= 22；
-- npm；
-- 仓库根目录为当前目录。
-
-## 演示步骤
+## 0:20–0:45：完全离线证据
 
 ```bash
 npm ci
 npm run check
 npm run eval:offline
-npm run test:package
 ```
 
-预期结果：质量门全部通过；offline eval 摘要显示 7/7 场景成功；报告写入 `.easycode/evals/<runId>.json`；package smoke 显示 tarball 可在临时空目录安装，且帮助、版本、未知参数和无配置启动行为稳定。临时 fixture、安装目录、tarball 与隔离 npm cache 会被清理。
+预期：质量门通过；7/7 固定场景成功。打开 `.easycode/evals/<runId>.json`，只指出 revision、场景断言、rounds、tools、tokens 与终止原因，不展示或保存会话正文。说明 `complete` 不是成功条件，grader 还检查文件/hash、非预期修改、验证脚本和预算。
 
-可单独展示无需配置的 CLI：
+## 0:45–1:25：真实库存修复
 
-```bash
-npm run build
-node dist/main.js --help
-node dist/main.js --version
+在 `demo-workspace/scenarios/01-inventory-atomicity` 启动 TUI。任务要求先读代码，只修改 `src/inventory.mjs`，运行 `node verify.mjs`。展示：
+
+1. 顶部品牌、v0.2.0、Qwen 模型、workspace 和状态；
+2. “读取文件 → 修改文件 → 执行命令”的中文时间线；
+3. 命令的一次性授权框；按 `y` 只允许当前 ToolCall；
+4. 验证结果 4/4 后的简短回答，以及 rounds、工具成功/失败统计。
+
+## 1:25–1:45：结构化 stdin
+
+在隔离 A+B workspace 中要求创建并编译 C++ 程序，再以 `stdin` 输入 `3 5`。每条编译/运行命令分别确认；界面只显示 stdin byte 数，不显示正文。客观检查 executable stdout 为 `8`。强调没有 `echo | program`、重定向、`cmd`、PowerShell 或 `shell:true`。
+
+## 1:45–2:00：默认拒绝与限制
+
+让 Agent 请求一个安全的验证命令，在确认框直接按 Enter：默认拒绝，进程不执行。说明即使按 `y`，shell pipe、危险 Git、发布/部署和 workspace 外访问仍会在确认前硬拒绝。
+
+最后说明限制：当前不是 OS 级沙箱；Session 只在内存中，失败回滚模型历史但不撤销已发生的文件副作用；没有多 Provider、长期记忆、插件或 Git push/PR 工具。
+
+## 可复现配置与注意事项
+
+默认演示使用 `npm run eval:offline`，不需要 key、网络或费用。可选百炼演示必须通过当前进程环境设置 Provider 变量，并设置：
+
+```text
+EASYCODE_ENABLE_THINKING=false
 ```
 
-## 结果解释
-
-- `npm test` 是模块和离线集成契约；
-- `eval:offline` 是固定 coding 场景的功能证据，不能由 `complete` 单独判成功；
-- `test:package` 是安装与 CLI 交付证据；
-- `.easycode/evals/` 报告只含复现元数据、指标与安全断言，不含消息、工具参数或结果正文。
-
-## 可选真实演示
-
-`npm run test:smoke` 与 `npm run eval:real` 会请求真实 Provider，可能产生费用和限流。它们分别要求显式开关 `EASYCODE_SMOKE=1` 或 `EASYCODE_REAL_EVAL=1` 以及完整 Provider 配置，不进入普通 CI。本版本发布验收不运行这两项；如需演示，先阅读 `README.md` 与 `docs/SECURITY.md`，只通过当前进程环境注入凭据。
+真实 smoke 需 `EASYCODE_SMOKE=1`，真实 eval 需 `EASYCODE_REAL_EVAL=1`。两者可能产生费用、限流和重复重试计费，不进入普通 CI。不得把 key 写入命令记录、文档、截图或报告。

@@ -50,6 +50,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  let version: string;
+  try {
+    version = readPackageVersion();
+  } catch {
+    writeStartupError("无法读取版本信息");
+    process.exitCode = 1;
+    return;
+  }
+
   const cwd = process.cwd();
   const redactor = new Redactor({ secrets: [config.apiKey] });
   const approvals = new ApprovalBroker();
@@ -74,6 +83,7 @@ async function main(): Promise<void> {
   const instance = render(
     createElement(EasyCodeApp, {
       runner: session,
+      version,
       model: config.model,
       workspace,
       colorEnabled: process.env.NO_COLOR === undefined,

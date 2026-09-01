@@ -111,3 +111,16 @@ M6 固定场景定义见 `evals/scenarios/catalog.ts`，说明见 `evals/scenari
 | M7-07 | [x] 已验证 | 工作树、tracked files、可访问历史、tarball 与运行产物扫描不含真实 secret 或不必要交付内容 | 提交前扫描、package smoke、`.gitignore` |
 
 M7 的 package smoke 只为安装后的 CLI 注入网络请求防线；npm 安装依赖本身仍按正常 npm registry/cache 语义运行。普通 CI 不设置 `EASYCODE_REAL_EVAL`、`EASYCODE_SMOKE` 或 Provider 凭据，不运行真实 API。M7 不执行 `npm publish`、tag 或 GitHub Release。
+
+## 10. D1 真实 Provider 展示验收
+
+| ID | 状态 | 验收项 | 证据入口 |
+| --- | --- | --- | --- |
+| D1-01 | [x] 已验证 | 百炼/Qwen smoke 在 `enable_thinking=false` 下完成文本流，并接受 finish 后单个 usage 事件 | `openai-compatible.smoke.test.ts`、本地真实运行记录 |
+| D1-02 | [x] 已验证 | real eval 的 eligible 场景由客观 grader 判定；失败报告保留且不以 `complete` 代替成功 | `eval:real` 报告、`offline-eval.test.ts` |
+| D1-03 | [x] 已验证 | A+B 通过结构化 stdin 编译运行，库存场景只改目标文件并 4/4 验证 | 安全 D1 运行记录与 workspace 客观检查 |
+| D1-04 | [x] 已验证 | 中文 TUI 在 120/80/60/40 columns 与 `NO_COLOR` 下无溢出；状态、授权、stdin 摘要和完成统计清晰 | `ui-app.test.tsx`、`ui-format.test.ts`、视觉复核 |
+| D1-05 | [x] 已验证 | README、两分钟脚本、`submission/README.txt` 与答辩材料对能力、安全和限制表述一致 | 对应版本化文档审查 |
+| D1-06 | [x] 已验证 | 真实调用与报告不保存 key、prompt、工具正文；ToolCall、workspace、确认和命令边界未降低 | `SECURITY.md`、报告 schema、提交前扫描 |
+
+D1 调优前 real eval 报告为 `.easycode/evals/c80dd7ff-bbf8-45b4-b7b2-250e46b1c145.json`（0/4）；最终报告为 `.easycode/evals/1a814dbc-2200-4a5d-8032-eaa7c5675bd3.json`（4/4）。真实 TUI 的安全聚合记录位于 `.easycode/d1/real-scenarios.json`，只保存指标与客观断言；这些本地产物均被 Git 忽略。

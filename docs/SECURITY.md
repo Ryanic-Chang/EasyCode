@@ -7,6 +7,7 @@
 ## 密钥与日志
 
 - API key 只从进程环境进入 composition root，不写入仓库或 `.env.example`。
+- `EASYCODE_ENABLE_THINKING` 只接受字面量 `true`/`false`；未配置时不发送厂商扩展。百炼演示使用 `false` 降低延迟和工具协议波动，但不放松 ToolCall 校验。
 - `Redactor` 统一过滤显式 secret、Authorization/Bearer、`sk-...`、常见 key/value、URL userinfo/query 和敏感 metadata key。
 - metadata 只保留 JSON-safe、有界深度/字段/数组/bytes 的副本；不读取 getter，不修改原对象，循环引用与截断会明确标记。
 - 默认 logger 为 silent；可注入 logger 只能接收 method、安全 path、status、attempt、duration、稳定错误 code 和有界 request ID，不接收 prompt、headers、正文、ToolCall arguments 或 ToolResult 原文。
@@ -40,4 +41,4 @@ Provider 只在成功 SSE stream 发布 `start` 前对瞬时候选错误有界�
 
 ## 明确限制
 
-EasyCode 的 workspace、命令白/黑名单、timeout、取消和确认门不是容器或 OS 级强沙箱。被允许的进程仍具有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；当前实现不保证完整进程树隔离。Session 回滚只恢复模型历史，不能撤销已经完成的文件或命令副作用。v0.1.0 不包含 Session 持久化、长期记忆、context compression、远程 telemetry、dashboard、多 Provider、自动选模、Git push/PR 工具、插件或 GUI。
+EasyCode 的 workspace、命令白/黑名单、timeout、取消和确认门不是容器或 OS 级强沙箱。被允许的进程仍具有当前用户权限，可能访问网络、workspace 外资源或创建后代进程；当前实现不保证完整进程树隔离。Session 回滚只恢复模型历史，不能撤销已经完成的文件或命令副作用。v0.2.0 不包含 Session 持久化、长期记忆、context compression、远程 telemetry、dashboard、多 Provider、自动选模、Git push/PR 工具、插件或 GUI。

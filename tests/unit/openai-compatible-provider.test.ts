@@ -30,6 +30,20 @@ function errorEvent(code: ProviderErrorCode, retryable: boolean): ProviderEvent 
 }
 
 describe("OpenAI-compatible 请求适配", () => {
+  it("仅在显式配置时发送 enable_thinking 厂商扩展", async () => {
+    const omitted = recordFetch(successfulTextResponse());
+    await collectProviderEvents(providerFor(omitted.fetch).stream(basicRequest));
+    expect(JSON.parse(String(omitted.calls[0]?.init?.body))).not.toHaveProperty("enable_thinking");
+
+    const configured = recordFetch(successfulTextResponse());
+    const provider = new OpenAICompatibleProvider(
+      { apiKey: "fixture-key", baseUrl: new URL("https://example.test/v1"), enableThinking: false },
+      { fetch: configured.fetch, retry: { maxRetries: 0, baseDelayMs: 1 } },
+    );
+    await collectProviderEvents(provider.stream(basicRequest));
+    expect(JSON.parse(String(configured.calls[0]?.init?.body))).toMatchObject({ enable_thinking: false });
+  });
+
   it("保留 base path 并映射完整消息、ToolCall、ToolResult 与工具定义", async () => {
     const recorder = recordFetch(successfulTextResponse());
     const provider = providerFor(recorder.fetch);

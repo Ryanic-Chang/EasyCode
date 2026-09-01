@@ -18,12 +18,13 @@ export interface SuiteRunOptions {
   createProvider(scenario: EvaluationScenario): Provider;
 }
 
-function infrastructureFailure(scenario: EvaluationScenario): ScenarioEvaluationResult {
+function infrastructureFailure(scenario: EvaluationScenario, mode: EvaluationMode): ScenarioEvaluationResult {
+  const maxSteps = mode === "real" ? (scenario.realMaxSteps ?? scenario.maxSteps) : scenario.maxSteps;
   return {
     scenarioId: scenario.id,
     scenarioVersion: scenario.version,
     fixtureVersion: scenario.fixtureVersion,
-    maxSteps: scenario.maxSteps,
+    maxSteps,
     passed: false,
     terminationReason: "internal_error",
     errorCode: "internal_error",
@@ -71,10 +72,11 @@ export async function runSuite(
           fixturesRoot,
           model: options.model,
           provider: options.createProvider(scenario),
+          mode: options.mode,
         }),
       );
     } catch {
-      results.push(infrastructureFailure(scenario));
+      results.push(infrastructureFailure(scenario, options.mode));
     }
   }
   const report = createReport({

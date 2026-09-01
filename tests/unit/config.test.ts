@@ -36,6 +36,19 @@ describe("Provider 配置", () => {
   });
 
   it.each([
+    ["true", true],
+    ["false", false],
+  ] as const)("严格读取可选 thinking 配置 %s", (raw, expected) => {
+    expect(loadEasyCodeConfig({ ...validEnvironment, EASYCODE_ENABLE_THINKING: raw }).enableThinking).toBe(expected);
+  });
+
+  it.each(["", "TRUE", "False", "0", " false "])("拒绝非法 thinking 配置 %s", (value) => {
+    expect(() => loadEasyCodeConfig({ ...validEnvironment, EASYCODE_ENABLE_THINKING: value })).toThrowError(
+      expect.objectContaining<Partial<ConfigError>>({ code: "invalid_boolean" }),
+    );
+  });
+
+  it.each([
     ["EASYCODE_MAX_RETRIES", ""],
     ["EASYCODE_MAX_RETRIES", "-1"],
     ["EASYCODE_MAX_RETRIES", "6"],

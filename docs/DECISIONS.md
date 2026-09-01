@@ -200,3 +200,17 @@
 - **决策**：Ubuntu Node.js 24 quality job 执行完整质量门、offline eval、package smoke、依赖树、许可证与 audit；Windows/macOS/Linux 以最低 Node.js 22 执行质量门、offline eval 和 package smoke。CI 只授予 `contents: read`。许可证脚本读取实际安装的生产 package metadata，以显式兼容标识 allowlist 校验并与版本化声明逐字比较。
 - **理由**：最新运行时质量证据不能替代最低版本和平台路径证据；依赖树与许可证声明必须从锁定安装事实生成，手工清单容易漂移。
 - **后果**：新增或升级依赖可能因未知许可证或 notices 漂移而失败，需要人工审查后更新；audit 发现需按生产/dev、直接/传递和可利用性处理，不能为了绿色盲目 major upgrade。
+
+## ADR-027：厂商扩展必须严格显式，真实 eval 使用独立预算
+
+- **状态**：已接受
+- **决策**：`EASYCODE_ENABLE_THINKING` 仅接受 `true`/`false`；未配置时 Provider 请求完全省略 `enable_thinking`。百炼演示固定为 `false`。offline 场景保留原预算，real 模式可为同一客观场景声明独立 `realMaxSteps` 和 `realBudget`。
+- **理由**：百炼官方兼容行为和真实基线表明关闭 thinking 可降低 Function Calling 延迟与波动；该字段不是 OpenAI 通用协议，不能默认注入。真实模型每轮重复携带 system prompt 和五个工具 schema，token 成本与 scripted fake 不同，复用百级离线预算会把功能成功误判为失败。
+- **后果**：配置错误在启动前稳定失败；其他 OpenAI-compatible 服务不受厂商字段影响。real 预算仍由相同 grader 强制执行，不改变 fixture、允许修改文件或命令确认策略。
+
+## ADR-028：D1 TUI 继续作为 AgentEvent 的紧凑纯投影
+
+- **状态**：已接受
+- **决策**：顶部状态栏固定显示品牌版本、模型、workspace 和状态；transcript 用单列时间线区分用户、轮次、工具、授权、结果；完成项记录 rounds 与工具成功/失败数。工具名映射为中文动作，stdin 只显示 byte 数。
+- **理由**：演示需要快速辨认“正在做什么、是否等待授权、最终是否完成”，但 UI 不应知道 Provider 或工具内部实现。纯 reducer 可继续用 40–120 columns、无颜色、长 Unicode 和流式事件确定性验证。
+- **后果**：界面不渲染原始 ToolCall JSON、stdin、secret、长 metadata 或 Markdown；统计是当前运行的事件投影，不是持久化 telemetry。

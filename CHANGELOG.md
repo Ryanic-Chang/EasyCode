@@ -2,6 +2,21 @@
 
 本项目的版本号以 `package.json` 为唯一运行时来源；CLI 版本与本文件版本标题由自动化测试校验一致。
 
+## [0.2.0] - 2026-09-01
+
+### 展示与兼容
+
+- 增加严格可选的 `EASYCODE_ENABLE_THINKING`；仅显式配置时发送 `enable_thinking`，百炼/Qwen 演示使用 `false`；
+- 根据真实百炼流修正 smoke 对 finish 后 usage-only chunk 的验收，并为 real eval 使用独立、可解释的真实模型预算；
+- 强化“先观察、最小修改、结构化 stdin、失败后修正、如实验证”的 system prompt 和命令工具描述；
+- 重做中文 Ink TUI 的品牌状态栏、时间线、中文工具动作、确认区和完成统计，并覆盖 120/80/60/40 columns 与 `NO_COLOR`。
+
+### 文档与边界
+
+- 重组 README 首屏，新增两分钟演示、设计答辩与考核提交说明；
+- 保持 ToolCall 全轮预验证、workspace canonical 边界、`shell:false`、逐调用确认和危险命令硬拒绝；
+- 仍不提供持久化、多 Provider、远程 telemetry、Git push/PR 工具、插件、GUI 或强沙箱。
+
 ## [0.1.3] - 2026-08-28
 
 ### 新增
